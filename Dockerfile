@@ -393,7 +393,17 @@ RUN ln -sf /usr/share/zoneinfo/${TZ} /etc/localtime \
 # buildah re-creates the parent directory of a cache-mount target as root,
 # where BuildKit leaves its owner alone. Restore it before dropping to ubuntu,
 # or `USER ubuntu` lands in a home directory it cannot write to.
-RUN chown ubuntu:ubuntu /home/ubuntu
+#
+# ~/.codex and ~/.claude are made in the same breath, as root and owned by
+# ubuntu. They are the mountpoints bin/run binds the host's agent state onto,
+# so they have to exist -- and they have to exist *before* the two layers
+# below, which run each CLI out of a home directory the npm cache mount has
+# just handed back to root: creating a directory there fails, writing inside an
+# existing one does not. Codex is the one that trips over it today; ~/.claude
+# is made here so a Claude release that touches its own state directory on
+# startup does not become the same build failure.
+RUN chown ubuntu:ubuntu /home/ubuntu \
+    && install -d -o ubuntu -g ubuntu -m 0755 /home/ubuntu/.codex /home/ubuntu/.claude
 
 USER ubuntu
 
@@ -421,10 +431,15 @@ RUN --mount=type=bind,from=refresh-codex,source=/codex,target=/tmp/refresh \
     CODEX_VERSION="$(jq -r .version /tmp/refresh/package.json)" \
     && echo "Installing Codex ${CODEX_VERSION}..." \
     && npm install --global --no-audit --no-fund "@openai/codex@${CODEX_VERSION}" \
-    && codex --version \
-    && mkdir -p "$HOME/.codex"
+    && codex --version
 
 USER root
+
+# The npm cache mounts in the two layers above leave /home/ubuntu owned by root
+# under buildah, and no `USER ubuntu` follows to trip over it -- the entrypoint
+# drops to ubuntu at run time instead. Hand the home directory back here, or the
+# runtime user opens a shell in a home it cannot write to.
+RUN chown ubuntu:ubuntu /home/ubuntu
 
 # The mountpoint for the read-only shared image store. Both storage configs
 # name it, so it has to exist even when nothing is mounted over it -- otherwise
