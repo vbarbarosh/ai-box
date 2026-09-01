@@ -350,12 +350,9 @@ RUN setcap cap_setuid+ep /usr/bin/newuidmap \
 RUN printf 'ubuntu:1:999\nubuntu:1001:64535\n' > /etc/subuid \
     && printf 'ubuntu:1:999\nubuntu:1001:64535\n' > /etc/subgid
 
-# A drop-in, not a replacement: overwriting /etc/containers/containers.conf
-# discards the distro's own settings (helper binary paths among them) and the
-# inner engine then cannot find netavark.
-COPY --chown=0:0 --chmod=0644 files/containers/99-nested.conf /etc/containers/containers.conf.d/99-nested.conf
-COPY --chown=0:0 --chmod=0644 files/containers/storage.conf    /etc/containers/storage.conf
-COPY --chown=0:0 --chmod=0644 files/containers/registries.conf /etc/containers/registries.conf
+# The container configuration itself is copied in at the end of the file, with
+# the rest of the local content. Only this marker -- which suppresses the
+# "emulate Docker CLI using podman" notice -- depends on nothing outside.
 RUN touch /etc/containers/nodocker
 
 # No `usermod -aG docker ubuntu`: there is no daemon and no socket to be
@@ -427,22 +424,6 @@ RUN --mount=type=bind,from=refresh-codex,source=/codex,target=/tmp/refresh \
     && codex --version \
     && mkdir -p "$HOME/.codex"
 
-# COPY defaults to root ownership even though the current runtime user is
-# ubuntu. Keeping local content last prevents edits from invalidating downloads.
-#
-# The whole directory goes to ~/bin, which the PATH above already carries, so
-# every helper here is on the PATH without a COPY per script.
-COPY --chown=1000:1000 --chmod=0755 files/bin/ /home/ubuntu/bin/
-
-# Tools the assistant reaches for: `tts` speaks narration, `transcribe` reads it
-# back out of a recording.
-COPY --chown=0:0 --chmod=0755 files/bin.ai/ /usr/local/bin/
-
-# Late, with the other local content, so editing it does not invalidate the
-# downloads above.
-RUN install -d -o ubuntu -g ubuntu -m 0755 /home/ubuntu/.config/containers
-COPY --chown=1000:1000 --chmod=0644 files/containers/storage-user.conf /home/ubuntu/.config/containers/storage.conf
-
 USER root
 
 # The mountpoint for the read-only shared image store. Both storage configs
@@ -455,13 +436,44 @@ RUN mkdir -p /var/lib/shared/overlay-images \
           /var/lib/shared/overlay-layers/layers.lock \
           /var/lib/shared/overlay-containers/containers.lock
 
+# COPY creates a missing parent directory owned by root, so ~/.config/containers
+# is made here, before the user config below lands in it.
+RUN install -d -o ubuntu -g ubuntu -m 0755 /home/ubuntu/.config/containers
+
 # Also set here, not only in the entrypoint: a `podman exec` into a running
 # environment does not pass through the entrypoint, and an inner engine with no
 # runtime directory drops its pause-process file into $PWD -- which is /app,
 # the mounted host workspace.
 ENV XDG_RUNTIME_DIR=/run/user/1000
 
+# =============================================================================
+# Local content
+#
+# Every COPY in the file is here, after the last download and the last package.
+# A file under files/ changes far more often than anything above, and these
+# layers are the only ones its edit invalidates: the rebuild copies a few
+# kilobytes and re-uses the rest of the image. COPY defaults to root ownership
+# even though the runtime user is ubuntu, so each one names its own.
+# =============================================================================
+
+# The whole directory goes to ~/bin, which the PATH above already carries, so
+# every helper here is on the PATH without a COPY per script.
+COPY --chown=1000:1000 --chmod=0755 files/bin/ /home/ubuntu/bin/
+
+# Tools the assistant reaches for: `tts` speaks narration, `transcribe` reads it
+# back out of a recording.
+COPY --chown=0:0 --chmod=0755 files/bin.ai/ /usr/local/bin/
+
+# A drop-in, not a replacement: overwriting /etc/containers/containers.conf
+# discards the distro's own settings (helper binary paths among them) and the
+# inner engine then cannot find netavark.
+COPY --chown=0:0 --chmod=0644 files/containers/99-nested.conf /etc/containers/containers.conf.d/99-nested.conf
+COPY --chown=0:0 --chmod=0644 files/containers/storage.conf    /etc/containers/storage.conf
+COPY --chown=0:0 --chmod=0644 files/containers/registries.conf /etc/containers/registries.conf
+COPY --chown=1000:1000 --chmod=0644 files/containers/storage-user.conf /home/ubuntu/.config/containers/storage.conf
+
 COPY --chmod=0755 files/docker-entrypoint /usr/local/bin/docker-entrypoint
+
 WORKDIR /app
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint"]
 CMD ["bash"]
