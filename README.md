@@ -71,8 +71,7 @@ read-write and from `$HOME` that would be every dotfile and key at once.
 | `$PWD` → `/app` | rw | the project; the only writable host path |
 | `$PWD/.git` | **ro** | mounted over the writable workspace, when present |
 | `$PWD/.env` | hidden | replaced with `/dev/null`, so secrets never enter the box |
-| `~/w/repos` → `/repos` | ro | |
-| `~/bn-backups` → `/bn-backups` | ro | when present |
+| `~/repos` → `/repos` | ro | |
 | `~/.claude`, `~/.claude.json` | rw | so the agent keeps its login and history |
 | `~/.codex`, `~/.codex.json` | rw | same, when present |
 
