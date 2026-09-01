@@ -126,11 +126,13 @@ echo "host storage"
 # bin/run maps your uid into the box (--userns=keep-id). How podman does that
 # depends on the graph driver, and the fast path is not the obvious one:
 #
-#   native overlay + older containers/storage -> an ID-shifted COPY of every
-#       layer on the first run after each build. Minutes on a large image.
-#   native overlay + newer containers/storage -> idmapped lower layers, free.
-#   fuse-overlayfs                            -> no copy, but it breaks nested
-#       `docker build` against the shared image store, so it is not a workaround.
+#   native overlay -> an ID-shifted COPY of every layer, the first time a
+#       given image id is mapped: after any non-cached build. Minutes on an
+#       image this size. Measured on podman 5.7 -- the idmapped-lower-layer
+#       fast path does not avoid it, so this is the normal path, not an old
+#       containers/storage misbehaving.
+#   fuse-overlayfs -> no copy, but it breaks nested `docker build` against
+#       the shared image store, so it is not a workaround.
 #
 # bin/build warms this so it never lands on whoever runs bin/run, so this is
 # reported, not treated as a fault.
@@ -139,9 +141,9 @@ native=$(podman info --format '{{index .Store.GraphStatus "Native Overlay Diff"}
 if test "$driver" = overlay && test "$native" = true; then
     ok "graph driver" "native overlay (podman $(podman --version 2>/dev/null | awk '{print $3}'))"
     printf '  %s%-9s%s %-26s %s%s%s\n' "$dim" "" "$reset" "" "$dim" \
-        "if bin/build's warming step is slow, that is the layer copy; newer" "$reset"
+        "if bin/build's warming step is slow, that is the layer copy; it" "$reset"
     printf '  %s%-9s%s %-26s %s%s%s\n' "$dim" "" "$reset" "" "$dim" \
-        "podman 5.5+ avoids it; do not switch to fuse-overlayfs to dodge it" "$reset"
+        "runs after any non-cached build; fuse-overlayfs is not a fix" "$reset"
 else
     ok "graph driver" "$driver${native:+ (native diff: $native)}"
 fi

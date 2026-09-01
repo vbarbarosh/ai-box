@@ -31,20 +31,24 @@ podman build $pull \
 mkdir -p "$(dirname $stamp)"
 echo "$ubuntu_refresh" > "$stamp"
 
-# bin/run maps your uid into the box (--userns=keep-id). How podman does that
-# depends on the graph driver, and the fast path is not the obvious one: on
-# native overlay with an older containers/storage it makes an ID-shifted COPY
-# of every layer, which on an image this size takes minutes and looks exactly
-# like a hang. Newer podman uses idmapped lower layers instead and is instant,
-# as is fuse-overlayfs.
+# bin/run maps your uid into the box (--userns=keep-id). On native overlay
+# podman makes an ID-shifted COPY of every layer the first time it maps a
+# given image id -- so after any non-cached build -- which on an image this
+# size takes minutes and looks exactly like a hang. Measured on podman 5.7:
+# the idmapped-lower-layer fast path does not avoid this, so the copy is the
+# expected path rather than a sign of anything wrong with the host.
+# fuse-overlayfs skips it, but breaks nested `docker build` against the
+# shared image store, so it is not a workaround.
 #
 # Do it here, once, while you are already waiting for a build, rather than in
 # front of whoever runs bin/run next.
 
 graphroot=$(podman info --format '{{.Store.GraphRoot}}' 2>/dev/null || echo "")
 
-# Free space on the store's filesystem, in bytes. The copy writes real bytes,
-# so the fall in free space is a usable measure of how far along it is.
+# Free space on the store's filesystem, in bytes. The copy hardlinks what it
+# can, so the fall in free space is well under the bytes being processed --
+# 523 MB observed for an ~8.5 GB copy. It is a liveness signal, not a measure
+# of how much is left, so what is reported below is written, not copied.
 free_bytes () {
     test -n "$graphroot" || { echo 0; return; }
     df -kP "$graphroot" 2>/dev/null | awk 'NR==2 {print $4 * 1024}'
@@ -120,7 +124,7 @@ while kill -0 $warm_pid 2>/dev/null; do
 
     if test "$written" -gt 0; then
         rate=$(( written / elapsed ))
-        line=$(printf '  %s copied, %ds elapsed (%s/s)' \
+        line=$(printf '  %s written, %ds elapsed (%s/s)' \
             "$(human $written)" "$elapsed" "$(human $rate)")
     else
         line=$(printf '  %ds elapsed' "$elapsed")
@@ -144,7 +148,7 @@ case "$warm_status" in
     0)   if test -n "$shown"; then
              final=$(( before - $(free_bytes) ))
              test "$final" -ge 0 2>/dev/null || final=0
-             echo "  warmed in $(( $(date +%s) - start ))s ($(human $final) copied)"
+             echo "  warmed in $(( $(date +%s) - start ))s ($(human $final) written)"
          fi ;;
     130|$((128+2))|$((128+15)))
          # Signalled without our trap running (e.g. SIGINT delivered straight
