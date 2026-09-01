@@ -130,10 +130,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # The release directory carries SHASUMS256.txt for every artifact in it, so
 # the tarball is checked against its own publisher before it is unpacked.
 RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" -o /tmp/SHASUMS256.txt \
-    && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" -o /tmp/node.tar.xz \
+    && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" -o "/tmp/node-v${NODE_VERSION}-linux-x64.tar.xz" \
     && (cd /tmp && grep "  node-v${NODE_VERSION}-linux-x64.tar.xz$" /tmp/SHASUMS256.txt | sha256sum -c -) \
-    && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
-    && rm /tmp/node.tar.xz /tmp/SHASUMS256.txt \
+    && tar -xJf "/tmp/node-v${NODE_VERSION}-linux-x64.tar.xz" -C /usr/local --strip-components=1 \
+    && rm "/tmp/node-v${NODE_VERSION}-linux-x64.tar.xz" /tmp/SHASUMS256.txt \
     && node --version \
     && npm --version
 
