@@ -1,0 +1,20 @@
+# Secrets never enter the box (bin/run masks .env with /dev/null); keep them
+# out of git as well.
+.env
+.env.*
+
+# Agent state that bin/run touches into existence in $HOME, harmless here but
+# never worth committing if a run is ever pointed at the tree.
+.claude.json
+.codex.json
+.claude/
+.codex/
+
+# Scratch that lands in the tree during a session: `script` transcripts,
+# clipboard dumps, editor and OS noise.
+typescript
+clipboard*
+*.swp
+*.swo
+*~
+.DS_Store

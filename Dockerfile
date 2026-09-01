@@ -35,7 +35,7 @@ ARG WHISPER_MODEL=small
 
 ENV NPM_CONFIG_PREFIX=/home/ubuntu/.local \
     NODE_PATH=/home/ubuntu/.local/lib/node_modules \
-    PATH=/home/ubuntu/.local/bin:${PATH} \
+    PATH=/home/ubuntu/bin:/home/ubuntu/.local/bin:${PATH} \
     PLAYWRIGHT_BROWSERS_PATH=/home/ubuntu/.cache/ms-playwright \
     PUPPETEER_CACHE_DIR=/home/ubuntu/.cache/puppeteer \
     CYPRESS_CACHE_FOLDER=/home/ubuntu/.cache/Cypress \
@@ -177,7 +177,7 @@ RUN cypress verify \
 
 RUN printf '\n%s\n%s\n' \
         'alias codex="codex -a never -s danger-full-access"' \
-        'export PATH="$HOME/.local/bin:$PATH"' \
+        'export PATH="$HOME/bin:$HOME/.local/bin:$PATH"' \
         >> "$HOME/.bashrc"
 
 # OpenCV comes from pip, not apt: rembg's dependencies force numpy 2 into
@@ -412,7 +412,10 @@ RUN --mount=type=bind,from=refresh-codex,source=/codex,target=/tmp/refresh \
 
 # COPY defaults to root ownership even though the current runtime user is
 # ubuntu. Keeping local content last prevents edits from invalidating downloads.
-COPY --chown=0:0 --chmod=0755 files/bin/services /usr/local/bin/services
+#
+# The whole directory goes to ~/bin, which the PATH above already carries, so
+# every helper here is on the PATH without a COPY per script.
+COPY --chown=1000:1000 --chmod=0755 files/bin/ /home/ubuntu/bin/
 
 # Tools the assistant reaches for: `tts` speaks narration, `transcribe` reads it
 # back out of a recording.
