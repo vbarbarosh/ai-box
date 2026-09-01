@@ -32,6 +32,7 @@ ARG CYPRESS_VERSION=14.2.1
 ARG IMAGEMAGICK_VERSION=7.1.2-29
 ARG OXIPNG_VERSION=10.2.0
 ARG WHISPER_MODEL=small
+ARG TZ=Europe/Chisinau
 
 ENV NPM_CONFIG_PREFIX=/home/ubuntu/.local \
     NODE_PATH=/home/ubuntu/.local/lib/node_modules \
@@ -126,9 +127,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && exiftran -h > /dev/null \
     && mv /tmp/docker-clean /etc/apt/apt.conf.d/docker-clean
 
-RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" -o /tmp/node.tar.xz \
+# The release directory carries SHASUMS256.txt for every artifact in it, so
+# the tarball is checked against its own publisher before it is unpacked.
+RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" -o /tmp/SHASUMS256.txt \
+    && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" -o /tmp/node.tar.xz \
+    && (cd /tmp && grep "  node-v${NODE_VERSION}-linux-x64.tar.xz$" /tmp/SHASUMS256.txt | sha256sum -c -) \
     && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
-    && rm /tmp/node.tar.xz \
+    && rm /tmp/node.tar.xz /tmp/SHASUMS256.txt \
     && node --version \
     && npm --version
 
@@ -239,8 +244,14 @@ RUN redis_version="$(curl -fsSL https://pecl.php.net/rest/r/redis/latest.txt | t
     && php -r 'echo "phpredis ", phpversion("redis"), PHP_EOL;' \
     && rm -rf /tmp/pear
 
+# installer.sig is the SHA-384 of the installer that getcomposer.org is
+# serving, published separately from it -- the check Composer's own
+# documented install performs, and the reason this one is sha384sum.
 RUN composer_version="$(curl -fsSL https://getcomposer.org/versions | jq -r '.stable[0].version')" \
+    && composer_sig="$(curl -fsSL https://composer.github.io/installer.sig | tr -d '[:space:]')" \
+    && test -n "${composer_sig}" \
     && curl -fsSL https://getcomposer.org/installer -o /tmp/composer-setup.php \
+    && echo "${composer_sig}  /tmp/composer-setup.php" | sha384sum -c - \
     && php /tmp/composer-setup.php \
         --version="${composer_version}" \
         --install-dir=/usr/local/bin \
@@ -374,8 +385,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 # Times shown by the shell, by build tools, and by recorded output are the local
 # times of the people reading them. tzdata arrives with the packages above, so
-# only the machine-wide selection is left to make.
-ENV TZ=Europe/Chisinau
+# only the machine-wide selection is left to make. It is an ARG like every
+# other knob: --build-arg TZ=Europe/Berlin, or edit the default at the top.
+ENV TZ=${TZ}
 
 RUN ln -sf /usr/share/zoneinfo/${TZ} /etc/localtime \
     && echo "${TZ}" > /etc/timezone \
@@ -396,10 +408,15 @@ USER ubuntu
 # a new Claude or Codex costs seconds and leaves every layer above untouched.
 # =============================================================================
 
+# From npm, not `curl https://claude.ai/install.sh | bash`: the version above
+# is already read from the npm registry, install.sh publishes no checksum to
+# check it against, and npm verifies the package tarball's integrity itself.
+# NPM_CONFIG_PREFIX puts the binary at the same ~/.local/bin/claude either way.
 RUN --mount=type=bind,from=refresh-claude,source=/claude,target=/tmp/refresh \
+    --mount=type=cache,target=/home/ubuntu/.npm,uid=1000,gid=1000 \
     CLAUDE_VERSION="$(jq -r .version /tmp/refresh/package.json)" \
     && echo "Installing Claude ${CLAUDE_VERSION}..." \
-    && curl -fsSL https://claude.ai/install.sh | bash -s "${CLAUDE_VERSION}" \
+    && npm install --global --no-audit --no-fund "@anthropic-ai/claude-code@${CLAUDE_VERSION}" \
     && "$HOME/.local/bin/claude" --version
 
 RUN --mount=type=bind,from=refresh-codex,source=/codex,target=/tmp/refresh \

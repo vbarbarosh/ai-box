@@ -1,4 +1,7 @@
-![ai-box](img/cover.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/cover-dark.png">
+  <img alt="ai-box" src="img/cover.png">
+</picture>
 
 # `ai-box`
 
@@ -87,6 +90,23 @@ directory and the agents want files there.
 `--shm-size=2g` is set for Chrome/Playwright. `$PWD/.git`, `$PWD/.env` and
 `~/repos` are mounted only when they exist, so a bind mount never silently
 creates an empty directory in your home.
+
+### Helpers on the `PATH`
+
+`files/bin/` is installed to `~/bin` inside the box, so these are just there:
+
+| | |
+|---|---|
+| `services` | starts MySQL, Redis and MinIO as your own user, all bound to `127.0.0.1`. `services myapp` also creates a database and a bucket of that name. Data lives under `~/.local/var`, not `/var/lib` |
+| `hwdata` | CPU, memory and disks of the host underneath |
+| `diskusage` | one CSV row per real filesystem: inodes, bytes, percentages |
+| `diskusage-warn` | the same, filtered to whatever is over 85% |
+| `now` | timestamp, for pasting into notes |
+| `g` | recursive `ag` search: `g pattern` |
+| `templ` | the skeleton these scripts start from: `templ > new && vi new` |
+
+A few others ship in that directory and do not work in a container -- they want
+`systemd`, `ufw`, `sudo` or an X clipboard, none of which the image carries.
 
 **`dind` / `dd` are no longer needed.** They used to add `--privileged` and
 start a `dockerd`; docker now works in the box unprivileged with no daemon at
