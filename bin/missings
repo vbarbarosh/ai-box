@@ -167,7 +167,7 @@ test -d "$data/.claude"      && ok ".claude"      "agent state, rw"   || bad opt
 test -f "$data/.claude.json" && ok ".claude.json" "agent config, rw"  || bad optional ".claude.json" "created on first run"
 test -d "$data/.codex"       && ok ".codex"       "agent state, rw"   || bad optional ".codex"       "created on first run"
 test -f "$data/.codex.json"  && ok ".codex.json"  "agent config, rw"  || bad optional ".codex.json"  "created on first run"
-test -d "$HOME/repos"        && ok "~/repos"      "/repos, read-only" || bad optional "~/repos"      "created on first run"
+test -d "$HOME/repos"        && ok "~/repos"      "/repos, read-only" || bad optional "~/repos"      "mkdir it to mount it"
 
 # Stale container records naming a runtime that is no longer installed make
 # every podman command noisy. Worth naming, because the error does not say so.

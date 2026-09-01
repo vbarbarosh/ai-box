@@ -43,8 +43,6 @@ mkdir -p "$data/.codex" "$data/.claude"
 touch "$data/.codex.json"
 touch "$data/.claude.json"
 
-mkdir -p "$HOME/repos"
-
 opts=()
 
 # Read-only, mounted over the read-write workspace.
