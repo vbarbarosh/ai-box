@@ -1,0 +1,112 @@
+#!/bin/bash
+
+# http://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
+# http://redsymbol.net/articles/unofficial-bash-strict-mode
+set -o nounset -o errexit -o pipefail
+
+script=`realpath $0`
+scriptdir=`dirname $script`
+scriptname=`basename $script`
+
+# The workspace is the directory you ran this from, handed to the box
+# read-write as /app. From $HOME that would be every dotfile, key and
+# repository at once.
+workspace="$PWD"
+
+if test "$workspace" = "$HOME"; then
+    echo error: executing from HOME director is not safe
+    exit 1
+fi
+
+# Fail fast when the image is not built. Without this podman treats `ai-box` as
+# a short name and tries to pull it from a registry, which on a host with
+# docker.io in registries.conf looks like a hang and leaves a half-made
+# container behind when interrupted.
+if ! podman image exists ai-box; then
+    echo "error: no 'ai-box' image on this host -- build it first:" >&2
+    echo "         $scriptdir/build" >&2
+    echo "       (bin/missings reports what else may be absent)" >&2
+    exit 1
+fi
+
+# Bind-mounting a path that does not exist makes a directory of it, and the
+# agents want files. Create them empty rather than let that happen.
+touch "$HOME/.codex.json"
+touch "$HOME/.claude.json"
+
+mkdir -p "$HOME/repos"
+
+opts=()
+
+# Read-only, mounted over the read-write workspace.
+if test -e "$workspace/.git"; then
+    opts+=(-v "$workspace/.git:/app/.git:ro")
+fi
+
+# -v /dev/null:/app/.env -- secrets never enter the box.
+if test -e "$workspace/.env"; then
+    opts+=(-v /dev/null:/app/.env:ro)
+fi
+
+# Mounted when present, so this script still runs on a machine that has not
+# set them up. An absent path would otherwise be created as an empty
+# directory.
+if test -d "$HOME/.codex"; then
+    opts+=(-v "$HOME/.codex:/home/ubuntu/.codex")
+fi
+if test -d "$HOME/.claude"; then
+    opts+=(-v "$HOME/.claude:/home/ubuntu/.claude")
+fi
+if test -e "$HOME/repos"; then
+    opts+=(-v "$HOME/repos:/repos:ro")
+fi
+
+# An image store shared in from the host: `docker run <image>` inside the box
+# then needs no pull and no network. Fill it with
+#   podman --root ~/.cache/ai-box/images pull alpine:latest
+#
+# Deliberately not :ro. Building FROM an image that lives only in this store
+# makes the inner engine create and remove a transient mountpoint inside it
+# ($store/overlay/$layer/merged), and read-only turns every such `docker build`
+# into "removing mount point ...: read-only file system". Only those transient
+# mountpoints are written; the images themselves are left alone.
+if test -d "$HOME/.cache/ai-box/images"; then
+    opts+=(-v "$HOME/.cache/ai-box/images:/var/lib/shared")
+fi
+
+# What each of the flags below is for:
+#
+#   --userns=keep-id:uid=1000,gid=1000 + --user 0
+#       ubuntu inside is you outside, so /app and the agent state mounts are
+#       writable and anything written lands owned by you, not by root. The
+#       entrypoint still starts as root and setpriv's down.
+#   --shm-size=2g
+#       Chrome and Playwright need more than the default 64m.
+#   --device /dev/fuse
+#       The inner overlay driver. Native overlayfs cannot stack on the box's
+#       own overlay upperdir, so the inner engine uses fuse-overlayfs.
+#   --device /dev/net/tun
+#       Uplink for the inner network namespace.
+#   --security-opt unmask=ALL
+#       The inner runtime writes /proc/sys/net/ipv4/ping_group_range.
+#   --security-opt seccomp=unconfined
+#       The inner runtime calls sethostname(2) in its own UTS namespace.
+#
+# No --privileged and no docker socket: the box is rootless and unprivileged,
+# and nothing it runs can reach the host.
+
+exec podman run --rm -it \
+    --pull=never \
+    --shm-size=2g \
+    "${opts[@]}" \
+    -v "$workspace:/app" \
+    -v "$HOME/.codex.json:/home/ubuntu/.codex.json" \
+    -v "$HOME/.claude.json:/home/ubuntu/.claude.json" \
+    --userns=keep-id:uid=1000,gid=1000 \
+    --user 0 \
+    --device /dev/fuse \
+    --device /dev/net/tun \
+    --security-opt label=disable \
+    --security-opt unmask=ALL \
+    --security-opt seccomp=unconfined \
+    ai-box "$@"

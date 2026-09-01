@@ -1,0 +1,26 @@
+#!/bin/bash
+
+# http://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
+# http://redsymbol.net/articles/unofficial-bash-strict-mode
+set -o nounset -o errexit -o pipefail
+
+script=`realpath $0`
+scriptdir=`dirname $script`
+scriptname=`basename $script`
+
+echo Show My IP:
+echo
+
+curl -sfL https://www.showmyip.gr/locate-ip-address | htmlq --text table | gawk '
+    function trim(s) { gsub(/^\s+|\s+$/, "", s); return s; }
+    BEGIN {
+        RS = "\n([ \t\r]+\n)+"
+        FS = "\n"
+        OFS = ":"
+    }
+    $1 {
+        print trim($1), trim($2)
+    }
+' | column -t -s: | sed 's/^/    /'
+
+echo

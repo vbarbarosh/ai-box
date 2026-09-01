@@ -1,0 +1,18 @@
+#!/bin/bash
+
+# http://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
+# http://redsymbol.net/articles/unofficial-bash-strict-mode
+set -o nounset -o errexit -o pipefail
+
+script=`realpath $0`
+scriptdir=`dirname $script`
+scriptname=`basename $script`
+
+cat << EOF
+Disk Performance:
+
+$(df $PWD -h)
+    /dev/zero     $(timeout 10s bash -c 'dd if=/dev/zero of=tmpfile bs=4K count=100K 2>&1 | tail -n1; rm tmpfile; sync')
+    /dev/urandom  $(timeout 10s bash -c 'dd if=/dev/urandom of=tmpfile bs=4K count=100K 2>&1 | tail -n1; rm tmpfile; sync')
+
+EOF

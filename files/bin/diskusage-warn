@@ -1,0 +1,18 @@
+#!/bin/bash
+
+# http://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
+# http://redsymbol.net/articles/unofficial-bash-strict-mode
+set -o nounset -o errexit -o pipefail
+
+script=`realpath $0`
+scriptdir=`dirname $script`
+scriptname=`basename $script`
+
+{
+    df -B1 -x squashfs -x tmpfs -x devtmpfs -x overlay \
+        --output=ipcent,source,target \
+        | awk 'NR>1 && +$1>85 { print $1,"inodes",$2,$3 }' OFS=,
+    df -B1 -x squashfs -x tmpfs -x devtmpfs -x overlay \
+        --output=pcent,source,target \
+        | awk 'NR>1 && +$1>85 { print $1,"bytes",$2,$3 }' OFS=,
+} | sort -rn

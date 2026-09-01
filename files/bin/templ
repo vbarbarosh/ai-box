@@ -1,0 +1,20 @@
+#!/bin/bash
+# http://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
+# http://redsymbol.net/articles/unofficial-bash-strict-mode/
+
+set -o nounset -o errexit -o pipefail
+
+script=`realpath $0`
+scriptdir=`dirname $script`
+scriptname=`basename $script`
+
+# http://redsymbol.net/articles/bash-exit-traps/
+# http://redsymbol.net/articles/unofficial-bash-strict-mode/#essential-cleanup
+tempdir=`mktemp -d -t tmp.XXXXXXXXXX`
+trap "rm -rf $tempdir" EXIT
+cd $tempdir
+
+echo script=$script
+echo scriptdir=$scriptdir
+echo scriptname=$scriptname
+echo tempdir=$tempdir

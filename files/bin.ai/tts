@@ -1,0 +1,95 @@
+#!/usr/bin/env node
+
+// Narration as an mp3, spoken by an Edge neural voice. Needs network.
+//
+// tts out.mp3 'Video Crop is ready.'
+// echo 'Two sentences. Spoken as one take.' | tts out.mp3 -
+// tts --voice en-US-AriaNeural out.mp3 'Hello.'
+// tts --list
+//
+// The duration in seconds goes to stdout: a screencast is paced by waiting out
+// each line, so the caller needs the length it just synthesised.
+
+const fs = require('fs');
+const path = require('path');
+const {MsEdgeTTS, OUTPUT_FORMAT} = require('msedge-tts');
+
+const DEFAULT_VOICE = 'en-US-AndrewMultilingualNeural';
+const USAGE = 'usage: tts [--voice NAME] <out.mp3> <text|-> ; tts --list';
+
+main();
+
+async function main()
+{
+    const args = parse_args(process.argv.slice(2));
+    const tts = new MsEdgeTTS();
+
+    if (args.list) {
+        const voices = await tts.getVoices();
+        voices.forEach(v => console.log(`${v.ShortName}\t${v.Gender}\t${v.Locale}`));
+        return;
+    }
+
+    const text = (args.text === '-') ? fs.readFileSync(0, 'utf8').trim() : args.text;
+    if (!text) {
+        throw new Error('Nothing to speak');
+    }
+
+    await tts.setMetadata(args.voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+
+    // toFile() takes a directory and writes audio.mp3 inside it, and it fails
+    // when that directory does not exist yet. The staging directory sits beside
+    // the output file so the result can be renamed instead of copied.
+    const stage = path.join(path.dirname(path.resolve(args.out)), `.tts-${process.pid}`);
+    fs.mkdirSync(stage, {recursive: true});
+    try {
+        const written = await tts.toFile(stage, text);
+        fs.renameSync(written.audioFilePath, args.out);
+    }
+    finally {
+        fs.rmSync(stage, {recursive: true, force: true});
+    }
+
+    console.log(duration_sec(args.out).toFixed(2));
+}
+
+// The mp3 is constant bitrate, so its length is size over rate - reading it
+// costs nothing and keeps ffprobe out of the caller's loop.
+function duration_sec(file)
+{
+    const bytes_per_sec = 48000/8;
+    return fs.statSync(file).size/bytes_per_sec;
+}
+
+function parse_args(argv)
+{
+    const out = {voice: DEFAULT_VOICE, list: false, out: null, text: null};
+    const rest = [];
+    for (let i = 0; i < argv.length; i++) {
+        switch (argv[i]) {
+        case '--voice':
+            out.voice = argv[++i];
+            break;
+        case '--list':
+            out.list = true;
+            break;
+        case '-h':
+        case '--help':
+            console.log(USAGE);
+            process.exit(0);
+            break;
+        default:
+            rest.push(argv[i]);
+        }
+    }
+    if (out.list) {
+        return out;
+    }
+    if (rest.length < 2) {
+        console.error(USAGE);
+        process.exit(2);
+    }
+    out.out = rest[0];
+    out.text = rest.slice(1).join(' ');
+    return out;
+}

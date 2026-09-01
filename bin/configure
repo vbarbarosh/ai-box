@@ -1,0 +1,151 @@
+#!/bin/bash
+
+# http://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
+# http://redsymbol.net/articles/unofficial-bash-strict-mode
+set -o nounset -o errexit -o pipefail
+
+script=`realpath $0`
+scriptdir=`dirname $script`
+scriptname=`basename $script`
+
+# Installs everything the host needs to run the box. Idempotent: every step
+# checks first, so re-running it is a no-op that reports what is already there.
+# `bin/missings` reports the same set without changing anything.
+#
+#   bin/configure            install what is missing
+#   bin/configure --dry-run  print what it would do, change nothing
+
+dry=
+as_root=
+while test $# -gt 0; do
+    case "$1" in
+        --dry-run|-n) dry=1 ;;
+        --as-root)    as_root=1 ;;
+        *) echo "usage: $scriptname [--dry-run] [--as-root]" >&2; exit 1 ;;
+    esac
+    shift
+done
+
+# The subordinate range has to belong to whoever will run the box. Under sudo
+# that is $SUDO_USER; as bare root there is nobody to infer, and granting the
+# range to root would look like success while leaving the real user unable to
+# nest anything. Refuse, unless root is genuinely the intended user.
+if test "$(id -u)" -eq 0 && test -z "${SUDO_USER-}"; then
+    if test -z "$as_root"; then
+        echo "error: running as root with no SUDO_USER." >&2
+        echo "       The subordinate id range would be granted to root, not to" >&2
+        echo "       the user who will run the box. Re-run as that user, or as" >&2
+        echo "       'sudo $0', or pass --as-root if root really is" >&2
+        echo "       the user who will run it." >&2
+        exit 1
+    fi
+    echo "note: configuring for root itself (--as-root)" >&2
+fi
+
+# run <description> <command...>
+run () {
+    local what=$1; shift
+    if test -n "$dry"; then
+        echo "  would: $what"
+        echo "         $*"
+    else
+        echo "  $what"
+        "$@"
+    fi
+}
+
+# Ask for the password once, up front, rather than letting it surface as
+# sudo's "a terminal is required to authenticate" in the middle of the run.
+if test -z "$dry" && test "$(id -u)" -ne 0; then
+    if ! sudo -n true 2>/dev/null; then
+        if test -t 0; then
+            echo "This needs sudo to install packages and load kernel modules."
+            sudo -v || exit 1
+        else
+            echo "error: needs sudo, and there is no terminal to authenticate on." >&2
+            echo "       Run it from a terminal, or pre-authenticate with 'sudo -v'." >&2
+            exit 1
+        fi
+    fi
+fi
+
+if ! command -v apt-get >/dev/null 2>&1; then
+    echo "error: this script only knows apt. Install the equivalents of:" >&2
+    echo "  podman uidmap crun passt slirp4netns" >&2
+    exit 1
+fi
+
+echo
+echo "packages"
+
+# passt provides pasta, the userspace network helper podman prefers; slirp4netns
+# is the older fallback and is small enough to keep as a spare.
+want=(podman uidmap crun passt slirp4netns)
+need=()
+for p in "${want[@]}"; do
+    if dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q '^install ok installed$'; then
+        echo "  present: $p"
+    else
+        need+=("$p")
+    fi
+done
+
+if test "${#need[@]}" -gt 0; then
+    run "apt-get install: ${need[*]}" sudo apt-get install -y "${need[@]}"
+fi
+
+echo
+echo "kernel modules"
+
+# /dev/fuse is the inner overlay driver; /dev/net/tun is the inner network
+# uplink. Both are passed into the box, so both must exist on the host.
+for pair in "fuse /dev/fuse" "tun /dev/net/tun"; do
+    set -- $pair
+    mod=$1; dev=$2
+    if test -c "$dev"; then
+        echo "  present: $dev"
+    else
+        run "modprobe $mod" sudo modprobe "$mod"
+        # Survive a reboot.
+        if ! grep -qxs "$mod" /etc/modules-load.d/ai-box.conf; then
+            run "persist $mod across reboots" \
+                sudo tee -a /etc/modules-load.d/ai-box.conf <<<"$mod"
+        fi
+    fi
+done
+
+echo
+echo "subordinate ids"
+
+# The inner engine carves its own range out of this one. A range shorter than
+# 65536 is the setting that breaks nesting, with an opaque newuidmap error.
+# Under `sudo bin/configure`, id -un is root -- but the subordinate range has
+# to belong to whoever will actually run the box. Guarded above: bare root
+# without --as-root never gets this far.
+me=${SUDO_USER:-$(id -un)}
+for f in /etc/subuid /etc/subgid; do
+    n=$(awk -F: -v u="$me" '$1==u {print $3; exit}' "$f" 2>/dev/null || true)
+    if test "${n:-0}" -ge 65536 2>/dev/null; then
+        echo "  present: $f has $n ids for $me"
+    elif test -n "${n:-}"; then
+        echo "  $f gives $me only $n ids, and 65536 are needed." >&2
+        echo "  Widen it by hand -- rewriting an existing range can collide" >&2
+        echo "  with ids already used by containers you have:" >&2
+        echo "    sudo sed -i 's/^$me:.*/$me:100000:65536/' $f" >&2
+        exit 1
+    else
+        case "$f" in
+            /etc/subuid) run "grant $me 65536 subuids" sudo usermod --add-subuids 100000-165535 "$me" ;;
+            /etc/subgid) run "grant $me 65536 subgids" sudo usermod --add-subgids 100000-165535 "$me" ;;
+        esac
+        run "reload podman's view of the new range" sudo -u "$me" podman system migrate
+    fi
+done
+
+echo
+if test -n "$dry"; then
+    echo "dry run: nothing changed"
+else
+    echo "done -- checking:"
+    exec "$scriptdir/missings"
+fi

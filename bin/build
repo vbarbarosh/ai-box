@@ -1,0 +1,159 @@
+#!/bin/bash
+
+# http://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
+# http://redsymbol.net/articles/unofficial-bash-strict-mode/
+set -o nounset -o errexit -o pipefail
+
+script=`realpath $0`
+scriptdir=`dirname $script`
+scriptname=`basename $script`
+
+cd $scriptdir/..
+
+# One ISO week drives every refresh: the token expires the package layer in the
+# Dockerfile, and the base image moves on the same day. The stamp holds the week
+# of the last finished build, so repeat builds inside one week reuse every
+# cached layer and ask no registry for a newer Ubuntu.
+ubuntu_refresh="$(date -u +%G-W%V)"
+stamp="$HOME/.cache/ai-box/refresh"
+
+pull=
+if [ "$(cat "$stamp" 2>/dev/null)" != "$ubuntu_refresh" ]; then
+    pull=--pull
+fi
+
+# An empty $pull must expand to no argument at all, so it stays unquoted.
+podman build $pull \
+    --build-arg "UBUNTU_REFRESH=${ubuntu_refresh}" \
+    . \
+    -t ai-box
+
+mkdir -p "$(dirname $stamp)"
+echo "$ubuntu_refresh" > "$stamp"
+
+# bin/run maps your uid into the box (--userns=keep-id). How podman does that
+# depends on the graph driver, and the fast path is not the obvious one: on
+# native overlay with an older containers/storage it makes an ID-shifted COPY
+# of every layer, which on an image this size takes minutes and looks exactly
+# like a hang. Newer podman uses idmapped lower layers instead and is instant,
+# as is fuse-overlayfs.
+#
+# Do it here, once, while you are already waiting for a build, rather than in
+# front of whoever runs bin/run next.
+
+graphroot=$(podman info --format '{{.Store.GraphRoot}}' 2>/dev/null || echo "")
+
+# Free space on the store's filesystem, in bytes. The copy writes real bytes,
+# so the fall in free space is a usable measure of how far along it is.
+free_bytes () {
+    test -n "$graphroot" || { echo 0; return; }
+    df -kP "$graphroot" 2>/dev/null | awk 'NR==2 {print $4 * 1024}'
+}
+
+human () {
+    awk -v b="$1" 'BEGIN {
+        split("B KB MB GB TB", u, " "); i = 1
+        while (b >= 1024 && i < 5) { b /= 1024; i++ }
+        printf "%.1f %s", b, u[i]
+    }'
+}
+
+podman run --rm \
+    --userns=keep-id:uid=1000,gid=1000 \
+    --user 0 \
+    --entrypoint true \
+    ai-box &
+warm_pid=$!
+
+start=$(date +%s)
+
+# Ctrl-C here is not a failed build: the image is built and tagged by now, and
+# only the warming is unfinished. Say so, rather than leaving the bare
+# "signal: interrupt" that podman prints, which reads like the build broke.
+on_interrupt () {
+    trap - INT TERM
+    if kill -0 $warm_pid 2>/dev/null; then
+        # Signal descendants too: killing only the direct child can leave its
+        # workers running, still writing into the store. Then give it a few
+        # seconds to unwind cleanly before insisting.
+        command -v pkill >/dev/null 2>&1 && pkill -TERM -P $warm_pid 2>/dev/null || true
+        kill -TERM $warm_pid 2>/dev/null || true
+
+        for _ in 1 2 3; do
+            kill -0 $warm_pid 2>/dev/null || break
+            sleep 1
+        done
+
+        if kill -0 $warm_pid 2>/dev/null; then
+            command -v pkill >/dev/null 2>&1 && pkill -KILL -P $warm_pid 2>/dev/null || true
+            kill -KILL $warm_pid 2>/dev/null || true
+        fi
+
+        wait $warm_pid 2>/dev/null || true
+    fi
+    test -t 1 && printf '\r\033[K' || true
+    echo
+    echo "warming interrupted after $(( $(date +%s) - start ))s."
+    echo "The ai-box image is built and usable -- only the id-mapped copy is"
+    echo "unfinished. Re-run $scriptname to finish it here, or just use bin/run:"
+    echo "it will do the remaining work on its first run instead."
+    exit 130
+}
+trap on_interrupt INT TERM
+before=$(free_bytes)
+shown=
+
+# Stay quiet on a host that does not need the copy: it finishes in well under
+# the two seconds before anything is printed.
+while kill -0 $warm_pid 2>/dev/null; do
+    sleep 1
+    elapsed=$(( $(date +%s) - start ))
+    test "$elapsed" -ge 2 || continue
+
+    if test -z "$shown"; then
+        echo "warming the id-mapped layers (only the layers that changed)..."
+        shown=1
+    fi
+
+    written=$(( before - $(free_bytes) ))
+    test "$written" -ge 0 2>/dev/null || written=0
+
+    if test "$written" -gt 0; then
+        rate=$(( written / elapsed ))
+        line=$(printf '  %s copied, %ds elapsed (%s/s)' \
+            "$(human $written)" "$elapsed" "$(human $rate)")
+    else
+        line=$(printf '  %ds elapsed' "$elapsed")
+    fi
+
+    if test -t 1; then
+        printf '\r\033[K%s' "$line"
+    else
+        echo "$line"
+    fi
+done
+
+# errexit-safe: a killed child must reach the checks below, not abort here.
+warm_status=0
+wait $warm_pid || warm_status=$?
+trap - INT TERM
+
+test -z "$shown" || { test -t 1 && printf '\r\033[K' || true; }
+
+case "$warm_status" in
+    0)   if test -n "$shown"; then
+             final=$(( before - $(free_bytes) ))
+             test "$final" -ge 0 2>/dev/null || final=0
+             echo "  warmed in $(( $(date +%s) - start ))s ($(human $final) copied)"
+         fi ;;
+    130|$((128+2))|$((128+15)))
+         # Signalled without our trap running (e.g. SIGINT delivered straight
+         # to the child by the terminal's process group).
+         echo "warming interrupted. The ai-box image is built and usable;"
+         echo "re-run $scriptname to finish the id-mapped copy, or let bin/run"
+         echo "do it on first run."
+         exit 130 ;;
+    *)   echo "warning: warming exited with status $warm_status." >&2
+         echo "         The image is built; bin/run will do this work on first run." >&2
+         exit "$warm_status" ;;
+esac

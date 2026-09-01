@@ -1,0 +1,44 @@
+#!/bin/bash
+
+# http://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
+# http://redsymbol.net/articles/unofficial-bash-strict-mode
+set -o nounset -o errexit -o pipefail
+
+# Network data Script by Jonas Keidel 2012
+
+LANG=C
+echo Network data:
+echo
+
+for i in $(ifconfig -a | egrep '^eth.+|^wlp2s0.+|^eno.+|^enp.*|^ens.*' | cut -d ':' -f 1); do
+  # detect link
+  #
+  # Cannot get wake-on-lan settings: Operation not permitted
+  # ignore the message above by redirecting it to stdout
+  link=$(ethtool $i 2>&1 | grep "Link detected" | tr -s ' ' | cut -d: -f2)
+  # get mac address
+  mac=$(ip link show dev $i | grep ether | tr -s ' ' | cut -d ' ' -f3)
+  # get ip address
+  ip=$(ip a show $i | grep -m1 inet | tr -s ' ' | cut -d' ' -f3 | cut -d/ -f1 || true)
+  if [ -z "$ip" ] ; then
+    ip="(none)"
+  fi
+  ip6=$(ip a show $i | grep inet6 | grep -m1 global | awk '{print $2}' || true)
+  if [ -z "$ip6" ] ; then
+    ip6="(none)"
+  fi
+  modul=$(ethtool -i $i | grep driver | tr -s ' ' | cut -d' ' -f2)
+  if [ -n "$modul" ] ; then
+    modul=$(modinfo -d $modul 2>/dev/null)
+  fi
+
+  printf "   %-7s%s\n" "$i" "LINK:$link"
+  printf "%10s%s\n" " " "MAC:  $mac"
+  printf "%10s%s\n" " " "IP:   $ip"
+  printf "%10s%s\n" " " "IPv6: $ip6"
+  if [ -n "$modul" ] ; then
+    printf "%10s%s\n" " " "$modul"
+  fi
+done
+
+echo

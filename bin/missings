@@ -1,0 +1,201 @@
+#!/bin/bash
+
+# http://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
+# http://redsymbol.net/articles/unofficial-bash-strict-mode
+set -o nounset -o errexit -o pipefail
+
+script=`realpath $0`
+scriptdir=`dirname $script`
+scriptname=`basename $script`
+
+# Reports what the host has and what it lacks. Exits non-zero if anything
+# required is missing, so it can gate a build in CI. `bin/configure` installs
+# whatever this reports.
+#
+#   bin/missings          checks the host
+#   bin/missings --deep   also starts the box and runs a container inside it
+
+deep=
+if test "${1-}" = --deep; then
+    deep=1
+fi
+
+if test -t 1; then
+    green=$'\e[32m'; red=$'\e[31m'; yellow=$'\e[33m'; dim=$'\e[2m'; reset=$'\e[0m'
+else
+    green=; red=; yellow=; dim=; reset=
+fi
+
+missing_required=0
+missing_optional=0
+
+# ok <label> <detail>
+ok () {
+    printf '  %s%-9s%s %-26s %s\n' "$green" ok "$reset" "$1" "${2-}"
+}
+
+# bad <required|optional> <label> <how to fix>
+bad () {
+    if test "$1" = required; then
+        missing_required=$((missing_required + 1))
+        printf '  %s%-9s%s %-26s %s%s%s\n' "$red" MISSING "$reset" "$2" "$dim" "${3-}" "$reset"
+    else
+        missing_optional=$((missing_optional + 1))
+        printf '  %s%-9s%s %-26s %s%s%s\n' "$yellow" absent "$reset" "$2" "$dim" "${3-}" "$reset"
+    fi
+}
+
+# have <binary> <label> <package>
+have () {
+    if command -v "$1" >/dev/null 2>&1; then
+        v=$($1 --version 2>/dev/null | head -1 | cut -c1-40 || true)
+        ok "$2" "${v:-present at $(command -v "$1")}"
+    else
+        bad required "$2" "bin/configure  (apt: $3)"
+    fi
+}
+
+echo
+echo "host tools"
+have podman    podman    podman
+have crun      crun      crun
+have newuidmap newuidmap uidmap
+
+if command -v pasta >/dev/null 2>&1; then
+    ok "pasta" "$(pasta --version 2>/dev/null | head -1 | cut -c1-40)"
+elif command -v slirp4netns >/dev/null 2>&1; then
+    ok "slirp4netns" "$(slirp4netns --version 2>/dev/null | head -1 | cut -c1-40)"
+else
+    bad required "pasta/slirp4netns" "bin/configure  (apt: passt)"
+fi
+
+echo
+echo "kernel"
+if test -c /dev/fuse; then
+    ok "/dev/fuse" "inner overlay driver"
+else
+    bad required "/dev/fuse" "modprobe fuse"
+fi
+
+if test -c /dev/net/tun; then
+    ok "/dev/net/tun" "inner network uplink"
+else
+    bad required "/dev/net/tun" "modprobe tun"
+fi
+
+if test "$(stat -fc %T /sys/fs/cgroup)" = cgroup2fs; then
+    ok "cgroup v2" ""
+else
+    bad required "cgroup v2" "boot with systemd.unified_cgroup_hierarchy=1"
+fi
+
+userns=$(cat /proc/sys/user/max_user_namespaces 2>/dev/null || echo 0)
+if test "$userns" -gt 0; then
+    ok "user namespaces" "max $userns"
+else
+    bad required "user namespaces" "sysctl user.max_user_namespaces=15000"
+fi
+
+echo
+# Under sudo, id -un is root; report on the user who will run the box.
+me=${SUDO_USER:-$(id -un)}
+echo "subordinate ids for $me"
+if test "$(id -u)" -eq 0 && test -z "${SUDO_USER-}"; then
+    echo "  ${dim}(running as bare root -- this reports root's range, which is${reset}"
+    echo "  ${dim} probably not the user who will run the box)${reset}"
+fi
+# The inner engine carves its own range out of this one, so a short range is
+# the setting that breaks nesting with an opaque newuidmap error.
+for f in /etc/subuid /etc/subgid; do
+    n=$(awk -F: -v u="$me" '$1==u {print $3; exit}' "$f" 2>/dev/null || true)
+    if test "${n:-0}" -ge 65536 2>/dev/null; then
+        ok "$f" "$n ids"
+    else
+        bad required "$f" "bin/configure  (have ${n:-0}, need 65536)"
+    fi
+done
+
+echo
+echo "host storage"
+# bin/run maps your uid into the box (--userns=keep-id). How podman does that
+# depends on the graph driver, and the fast path is not the obvious one:
+#
+#   native overlay + older containers/storage -> an ID-shifted COPY of every
+#       layer on the first run after each build. Minutes on a large image.
+#   native overlay + newer containers/storage -> idmapped lower layers, free.
+#   fuse-overlayfs                            -> no copy, but it breaks nested
+#       `docker build` against the shared image store, so it is not a workaround.
+#
+# bin/build warms this so it never lands on whoever runs bin/run, so this is
+# reported, not treated as a fault.
+driver=$(podman info --format '{{.Store.GraphDriverName}}' 2>/dev/null || echo unknown)
+native=$(podman info --format '{{index .Store.GraphStatus "Native Overlay Diff"}}' 2>/dev/null || echo "")
+if test "$driver" = overlay && test "$native" = true; then
+    ok "graph driver" "native overlay (podman $(podman --version 2>/dev/null | awk '{print $3}'))"
+    printf '  %s%-9s%s %-26s %s%s%s\n' "$dim" "" "$reset" "" "$dim" \
+        "if bin/build's warming step is slow, that is the layer copy; newer" "$reset"
+    printf '  %s%-9s%s %-26s %s%s%s\n' "$dim" "" "$reset" "" "$dim" \
+        "podman 5.5+ avoids it; do not switch to fuse-overlayfs to dodge it" "$reset"
+else
+    ok "graph driver" "$driver${native:+ (native diff: $native)}"
+fi
+
+echo
+echo "image"
+if podman image exists ai-box 2>/dev/null; then
+    ok "ai-box" "$(podman image inspect ai-box --format '{{.Size}}' 2>/dev/null | awk '{printf "%.1f GB", $1/1000000000}')"
+else
+    bad optional "ai-box" "bin/build"
+fi
+
+if test -d "$HOME/.cache/ai-box/images"; then
+    ok "shared image store" "$(podman --root "$HOME/.cache/ai-box/images" --storage-driver overlay images -q 2>/dev/null | wc -l) images"
+else
+    bad optional "shared image store" "podman --root ~/.cache/ai-box/images pull alpine:latest"
+fi
+
+echo
+echo "mounts bin/run will make"
+test -d "$HOME/.claude"      && ok "~/.claude"     "agent state, rw"        || bad optional "~/.claude"     "not mounted"
+test -f "$HOME/.claude.json" && ok "~/.claude.json" "agent config, rw"      || bad optional "~/.claude.json" "created on first run"
+test -d "$HOME/.codex"       && ok "~/.codex"      "agent state, rw"        || bad optional "~/.codex"      "not mounted"
+test -f "$HOME/.codex.json"  && ok "~/.codex.json"  "agent config, rw"      || bad optional "~/.codex.json"  "created on first run"
+test -d "$HOME/w/repos"      && ok "~/w/repos"     "/repos, read-only"      || bad optional "~/w/repos"     "created on first run"
+test -d "$HOME/bn-backups"   && ok "~/bn-backups"  "/bn-backups, read-only" || bad optional "~/bn-backups"  "not mounted"
+
+# Stale container records naming a runtime that is no longer installed make
+# every podman command noisy. Worth naming, because the error does not say so.
+stale=$(podman ps -a 2>&1 >/dev/null | grep -c "is in use by a container, but is not available" || true)
+if test "$stale" -gt 0; then
+    echo
+    echo "warnings"
+    printf '  %s%-9s%s %-26s %s%s%s\n' "$yellow" stale "$reset" "container records" \
+        "$dim" "runtime missing; install it, then: podman rm -af" "$reset"
+fi
+
+if test -n "$deep"; then
+    echo
+    echo "deep check"
+    if podman image exists ai-box 2>/dev/null; then
+        # bin/run allocates a tty, and a tty turns \n into \r\n.
+        if out=$("$scriptdir/run" docker run --rm alpine echo nested-ok 2>&1 | tr -d '\r' | tail -1) \
+           && test "$out" = nested-ok; then
+            ok "container inside box" "docker run works"
+        else
+            bad required "container inside box" "$out"
+        fi
+    else
+        bad optional "container inside box" "no image yet; bin/build"
+    fi
+fi
+
+echo
+if test "$missing_required" -gt 0; then
+    echo "${red}$missing_required required item(s) missing${reset} -- run bin/configure"
+    exit 1
+fi
+if test "$missing_optional" -gt 0; then
+    echo "${green}host is ready${reset} ${dim}($missing_optional optional item(s) absent)${reset}"
+else
+    echo "${green}host is ready${reset}"
+fi

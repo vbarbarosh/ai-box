@@ -1,0 +1,30 @@
+#!/bin/bash
+
+# http://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
+# http://redsymbol.net/articles/unofficial-bash-strict-mode
+set -o nounset -o errexit -o pipefail
+
+# DOCKER_DIND is kept for compatibility with anything that still sets it, but
+# there is nothing to start: the engine is daemonless. What used to be a
+# dockerd launch plus a poll loop of up to ten seconds is now free, which is
+# most of the reason the environment opens in well under a second.
+if test "${DOCKER_DIND:-0}" = 1; then
+    :
+fi
+
+# The inner engine keeps its runtime state here. Without a runtime directory it
+# owns, it drops a pause-process file into $PWD -- straight into the mounted
+# host workspace. /run is a fresh tmpfs each start, so this is made here, as
+# root, in the moment before privileges are dropped.
+install -d -o ubuntu -g ubuntu -m 0700 /run/user/1000
+
+export XDG_RUNTIME_DIR=/run/user/1000
+export HOME=/home/ubuntu
+export USER=ubuntu
+export LOGNAME=ubuntu
+
+exec setpriv \
+    --reuid=ubuntu \
+    --regid=ubuntu \
+    --init-groups \
+    "$@"

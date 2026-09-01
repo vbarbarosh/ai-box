@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+
+# Speech from an audio or video file, as text. PyAV reads .mp4/.webm/.mkv
+# directly, so nothing has to be extracted first, and the model ships inside
+# the image, so nothing is downloaded at runtime.
+#
+# transcribe cast.mp4
+# transcribe --plain voice.mp3
+# transcribe --lang ru --model base call.webm
+#
+# The file name and the detected language go to stderr, the words to stdout,
+# so a transcript pipes cleanly.
+
+import argparse
+import os
+import sys
+
+from faster_whisper import WhisperModel
+
+
+def main():
+    args = parse_args()
+    model = WhisperModel(args.model, device='cpu', compute_type='int8')
+    for path in args.media:
+        transcribe_one(model, path, args)
+
+
+def transcribe_one(model, path, args):
+    segments, info = model.transcribe(path, language=args.lang, vad_filter=True)
+    print(f'{path}: {info.language}, {info.duration:.1f}s', file=sys.stderr)
+    if args.plain:
+        print(' '.join(segment.text.strip() for segment in segments))
+        return
+    for segment in segments:
+        print(f'[{stamp(segment.start)}] {segment.text.strip()}')
+
+
+# Minutes and seconds: a screencast is read alongside its frames, and a frame
+# is easier to find by 2:07 than by 127.
+def stamp(seconds):
+    return f'{int(seconds)//60}:{int(seconds)%60:02d}'
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Transcribe speech in audio or video files.')
+    parser.add_argument('media', nargs='+', help='audio or video files')
+    parser.add_argument('--model', default=os.environ.get('WHISPER_MODEL', 'small'),
+                        help='whisper model baked into the image (default: %(default)s)')
+    parser.add_argument('--lang', default=None, help='language code; detected when omitted')
+    parser.add_argument('--plain', action='store_true', help='one paragraph, without timestamps')
+    return parser.parse_args()
+
+
+main()
