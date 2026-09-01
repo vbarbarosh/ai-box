@@ -1,3 +1,5 @@
+![ai-box](img/cover.png)
+
 # `ai-box`
 
 An ephemeral environment for coding agents. It carries the toolchain the agents
