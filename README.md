@@ -74,12 +74,19 @@ read-write and from `$HOME` that would be every dotfile and key at once.
 | `$PWD/.git` | **ro** | mounted over the writable workspace, when present |
 | `$PWD/.env` | hidden | replaced with `/dev/null`, so secrets never enter the box |
 | `~/repos` → `/repos` | ro | |
-| `~/.claude`, `~/.claude.json` | rw | so the agent keeps its login and history |
-| `~/.codex`, `~/.codex.json` | rw | same, when present |
+| `~/.local/share/ai-box/data/.claude{,.json}` → `~/.claude{,.json}` | rw | so the agent keeps its login and history |
+| `~/.local/share/ai-box/data/.codex{,.json}` → `~/.codex{,.json}` | rw | same |
 
-`--shm-size=2g` is set for Chrome/Playwright. Anything absent on the host is
-skipped rather than mounted, so a bind mount never silently creates an empty
-directory in your home.
+Agent state is the box's own, under `$XDG_DATA_HOME` (`~/.local/share`) rather
+than your home dotfiles: the box logs in, keeps its history and rewrites its
+config without touching the `~/.claude` or `~/.codex` you use outside it.
+`bin/run` creates that directory and the two JSON files on first run, because a
+bind mount whose source does not exist would otherwise be created as a
+directory and the agents want files there.
+
+`--shm-size=2g` is set for Chrome/Playwright. `$PWD/.git`, `$PWD/.env` and
+`~/repos` are mounted only when they exist, so a bind mount never silently
+creates an empty directory in your home.
 
 **`dind` / `dd` are no longer needed.** They used to add `--privileged` and
 start a `dockerd`; docker now works in the box unprivileged with no daemon at

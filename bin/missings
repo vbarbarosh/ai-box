@@ -26,6 +26,12 @@ else
     green=; red=; yellow=; dim=; reset=
 fi
 
+# The same paths bin/run uses.
+data="${XDG_DATA_HOME:-$HOME/.local/share}/ai-box/data"
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/ai-box"
+short="${data/#$HOME/\~}"
+cshort="${cache/#$HOME/\~}"
+
 missing_required=0
 missing_optional=0
 
@@ -148,19 +154,20 @@ else
     bad optional "ai-box" "bin/build"
 fi
 
-if test -d "$HOME/.cache/ai-box/images"; then
-    ok "shared image store" "$(podman --root "$HOME/.cache/ai-box/images" --storage-driver overlay images -q 2>/dev/null | wc -l) images"
+if test -d "$cache/images"; then
+    ok "shared image store" "$(podman --root "$cache/images" --storage-driver overlay images -q 2>/dev/null | wc -l) images"
 else
-    bad optional "shared image store" "podman --root ~/.cache/ai-box/images pull alpine:latest"
+    bad optional "shared image store" "podman --root $cshort/images pull alpine:latest"
 fi
 
 echo
-echo "mounts bin/run will make"
-test -d "$HOME/.claude"      && ok "~/.claude"      "agent state, rw"   || bad optional "~/.claude"      "not mounted"
-test -f "$HOME/.claude.json" && ok "~/.claude.json" "agent config, rw"  || bad optional "~/.claude.json" "created on first run"
-test -d "$HOME/.codex"       && ok "~/.codex"       "agent state, rw"   || bad optional "~/.codex"       "not mounted"
-test -f "$HOME/.codex.json"  && ok "~/.codex.json"  "agent config, rw"  || bad optional "~/.codex.json"  "created on first run"
-test -d "$HOME/repos"        && ok "~/repos"        "/repos, read-only" || bad optional "~/repos"        "created on first run"
+# Agent state, all under $short. Named by leaf so the columns stay aligned.
+echo "mounts bin/run will make ${dim}(agent state under $short)${reset}"
+test -d "$data/.claude"      && ok ".claude"      "agent state, rw"   || bad optional ".claude"      "created on first run"
+test -f "$data/.claude.json" && ok ".claude.json" "agent config, rw"  || bad optional ".claude.json" "created on first run"
+test -d "$data/.codex"       && ok ".codex"       "agent state, rw"   || bad optional ".codex"       "created on first run"
+test -f "$data/.codex.json"  && ok ".codex.json"  "agent config, rw"  || bad optional ".codex.json"  "created on first run"
+test -d "$HOME/repos"        && ok "~/repos"      "/repos, read-only" || bad optional "~/repos"      "created on first run"
 
 # Stale container records naming a runtime that is no longer installed make
 # every podman command noisy. Worth naming, because the error does not say so.

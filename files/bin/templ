@@ -1,20 +1,31 @@
 #!/bin/bash
+
 # http://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
 # http://redsymbol.net/articles/unofficial-bash-strict-mode/
+set -o nounset -o errexit -o pipefail
 
+# Emits the skeleton every script in here starts from, on stdout:
+#
+#   templ > script1 && vi script1
+#
+# The heredoc is quoted, so what comes out is the source -- backticks, $0 and
+# $tempdir reach the new script unexpanded instead of being evaluated here.
+
+cat <<'EOF'
+#!/bin/bash
+
+# http://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
+# http://redsymbol.net/articles/unofficial-bash-strict-mode
 set -o nounset -o errexit -o pipefail
 
 script=`realpath $0`
 scriptdir=`dirname $script`
 scriptname=`basename $script`
 
+# A scratch directory that cleans itself up.
+# Drop this block if the script has nothing to write.
 # http://redsymbol.net/articles/bash-exit-traps/
-# http://redsymbol.net/articles/unofficial-bash-strict-mode/#essential-cleanup
 tempdir=`mktemp -d -t tmp.XXXXXXXXXX`
 trap "rm -rf $tempdir" EXIT
 cd $tempdir
-
-echo script=$script
-echo scriptdir=$scriptdir
-echo scriptname=$scriptname
-echo tempdir=$tempdir
+EOF

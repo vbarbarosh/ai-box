@@ -15,7 +15,7 @@ cd $scriptdir/..
 # of the last finished build, so repeat builds inside one week reuse every
 # cached layer and ask no registry for a newer Ubuntu.
 ubuntu_refresh="$(date -u +%G-W%V)"
-stamp="$HOME/.cache/ai-box/refresh"
+stamp="${XDG_CACHE_HOME:-$HOME/.cache}/ai-box/refresh"
 
 pull=
 if [ "$(cat "$stamp" 2>/dev/null)" != "$ubuntu_refresh" ]; then

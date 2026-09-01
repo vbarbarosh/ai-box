@@ -29,10 +29,19 @@ if ! podman image exists ai-box; then
     exit 1
 fi
 
+# Agent state for the box, kept apart from the host user's own dotfiles: the
+# box logs in, keeps its history and rewrites its config without touching
+# whatever you run outside it. XDG data, not config -- the agents own these
+# files and rewrite them constantly.
+# https://specifications.freedesktop.org/basedir-spec/latest/
+data="${XDG_DATA_HOME:-$HOME/.local/share}/ai-box/data"
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/ai-box"
+
 # Bind-mounting a path that does not exist makes a directory of it, and the
 # agents want files. Create them empty rather than let that happen.
-touch "$HOME/.codex.json"
-touch "$HOME/.claude.json"
+mkdir -p "$data/.codex" "$data/.claude"
+touch "$data/.codex.json"
+touch "$data/.claude.json"
 
 mkdir -p "$HOME/repos"
 
@@ -51,15 +60,14 @@ fi
 # Mounted when present, so this script still runs on a machine that has not
 # set them up. An absent path would otherwise be created as an empty
 # directory.
-if test -d "$HOME/.codex"; then
-    opts+=(-v "$HOME/.codex:/home/ubuntu/.codex")
-fi
-if test -d "$HOME/.claude"; then
-    opts+=(-v "$HOME/.claude:/home/ubuntu/.claude")
-fi
 if test -e "$HOME/repos"; then
     opts+=(-v "$HOME/repos:/repos:ro")
 fi
+
+opts+=(-v "$data/.codex.json:/home/ubuntu/.codex.json")
+opts+=(-v "$data/.claude.json:/home/ubuntu/.claude.json")
+opts+=(-v "$data/.codex:/home/ubuntu/.codex")
+opts+=(-v "$data/.claude:/home/ubuntu/.claude")
 
 # An image store shared in from the host: `docker run <image>` inside the box
 # then needs no pull and no network. Fill it with
@@ -70,8 +78,8 @@ fi
 # ($store/overlay/$layer/merged), and read-only turns every such `docker build`
 # into "removing mount point ...: read-only file system". Only those transient
 # mountpoints are written; the images themselves are left alone.
-if test -d "$HOME/.cache/ai-box/images"; then
-    opts+=(-v "$HOME/.cache/ai-box/images:/var/lib/shared")
+if test -d "$cache/images"; then
+    opts+=(-v "$cache/images:/var/lib/shared")
 fi
 
 # What each of the flags below is for:
@@ -100,8 +108,6 @@ exec podman run --rm -it \
     --shm-size=2g \
     "${opts[@]}" \
     -v "$workspace:/app" \
-    -v "$HOME/.codex.json:/home/ubuntu/.codex.json" \
-    -v "$HOME/.claude.json:/home/ubuntu/.claude.json" \
     --userns=keep-id:uid=1000,gid=1000 \
     --user 0 \
     --device /dev/fuse \
