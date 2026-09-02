@@ -6,3 +6,4 @@ ignored:
   - DL4006  # no pipefail: `yes | pecl` and `fc-match | grep -q` would then fail on SIGPIPE
   - DL3066  # USER ubuntu: the uid is 1000 and bin/run maps it explicitly
   - SC2016  # the .bashrc lines are single-quoted on purpose: they must reach the file unexpanded
+  - DL3042  # pip's cache is a BuildKit cache mount, not the image; the action's hadolint 2.12 predates that check
