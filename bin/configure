@@ -16,12 +16,10 @@ scriptname=`basename $script`
 #   bin/configure --dry-run  print what it would do, change nothing
 
 dry=
-as_root=
 while test $# -gt 0; do
     case "$1" in
         --dry-run|-n) dry=1 ;;
-        --as-root)    as_root=1 ;;
-        *) echo "usage: $scriptname [--dry-run] [--as-root]" >&2; exit 1 ;;
+        *) echo "usage: $scriptname [--dry-run]" >&2; exit 1 ;;
     esac
     shift
 done
@@ -29,17 +27,15 @@ done
 # The subordinate range has to belong to whoever will run the box. Under sudo
 # that is $SUDO_USER; as bare root there is nobody to infer, and granting the
 # range to root would look like success while leaving the real user unable to
-# nest anything. Refuse, unless root is genuinely the intended user.
+# nest anything. Root is never that user: bin/run's isolation rests on the
+# outer podman being rootless, so there is no root-runs-the-box case to
+# configure for.
 if test "$(id -u)" -eq 0 && test -z "${SUDO_USER-}"; then
-    if test -z "$as_root"; then
-        echo "error: running as root with no SUDO_USER." >&2
-        echo "       The subordinate id range would be granted to root, not to" >&2
-        echo "       the user who will run the box. Re-run as that user, or as" >&2
-        echo "       'sudo $0', or pass --as-root if root really is" >&2
-        echo "       the user who will run it." >&2
-        exit 1
-    fi
-    echo "note: configuring for root itself (--as-root)" >&2
+    echo "error: running as root with no SUDO_USER." >&2
+    echo "       The subordinate id range would be granted to root, not to" >&2
+    echo "       the user who will run the box -- and the box is rootless, so" >&2
+    echo "       root never runs it. Re-run as that user, or as 'sudo $0'." >&2
+    exit 1
 fi
 
 # run <description> <command...>
@@ -122,7 +118,7 @@ echo "subordinate ids"
 # 65536 is the setting that breaks nesting, with an opaque newuidmap error.
 # Under `sudo bin/configure`, id -un is root -- but the subordinate range has
 # to belong to whoever will actually run the box. Guarded above: bare root
-# without --as-root never gets this far.
+# never gets this far.
 me=${SUDO_USER:-$(id -un)}
 granted=
 for f in /etc/subuid /etc/subgid; do
