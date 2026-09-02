@@ -1,0 +1,8 @@
+# Each ignore has a reason in the Dockerfile itself; the short version:
+ignored:
+  - DL3008  # apt versions are not pinned: the weekly UBUNTU_REFRESH token gates that layer instead
+  - DL3002  # the last USER is root on purpose: the entrypoint makes /run/user/1000, then drops to ubuntu
+  - DL3003  # the `cd`s are scoped to one RUN (two in subshells); a WORKDIR would leak into the image
+  - DL4006  # no pipefail: `yes | pecl` and `fc-match | grep -q` would then fail on SIGPIPE
+  - DL3066  # USER ubuntu: the uid is 1000 and bin/run maps it explicitly
+  - SC2016  # the .bashrc lines are single-quoted on purpose: they must reach the file unexpanded

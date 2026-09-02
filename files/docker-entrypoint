@@ -4,13 +4,9 @@
 # http://redsymbol.net/articles/unofficial-bash-strict-mode
 set -o nounset -o errexit -o pipefail
 
-# DOCKER_DIND is kept for compatibility with anything that still sets it, but
-# there is nothing to start: the engine is daemonless. What used to be a
-# dockerd launch plus a poll loop of up to ten seconds is now free, which is
-# most of the reason the environment opens in well under a second.
-if test "${DOCKER_DIND:-0}" = 1; then
-    :
-fi
+script=`realpath $0`
+scriptdir=`dirname $script`
+scriptname=`basename $script`
 
 # The inner engine keeps its runtime state here. Without a runtime directory it
 # owns, it drops a pause-process file into $PWD -- straight into the mounted

@@ -71,7 +71,7 @@ fi
 
 if ! command -v apt-get >/dev/null 2>&1; then
     echo "error: this script only knows apt. Install the equivalents of:" >&2
-    echo "  podman uidmap crun passt slirp4netns" >&2
+    echo "  podman uidmap crun passt slirp4netns catatonit" >&2
     exit 1
 fi
 
@@ -79,8 +79,9 @@ echo
 echo "packages"
 
 # passt provides pasta, the userspace network helper podman prefers; slirp4netns
-# is the older fallback and is small enough to keep as a spare.
-want=(podman uidmap crun passt slirp4netns)
+# is the older fallback and is small enough to keep as a spare. catatonit is
+# the init bin/run puts at PID 1 of the box.
+want=(podman uidmap crun passt slirp4netns catatonit)
 need=()
 for p in "${want[@]}"; do
     if dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q '^install ok installed$'; then
@@ -123,6 +124,7 @@ echo "subordinate ids"
 # to belong to whoever will actually run the box. Guarded above: bare root
 # without --as-root never gets this far.
 me=${SUDO_USER:-$(id -un)}
+granted=
 for f in /etc/subuid /etc/subgid; do
     n=$(awk -F: -v u="$me" '$1==u {print $3; exit}' "$f" 2>/dev/null || true)
     if test "${n:-0}" -ge 65536 2>/dev/null; then
@@ -134,13 +136,22 @@ for f in /etc/subuid /etc/subgid; do
         echo "    sudo sed -i 's/^$me:.*/$me:100000:65536/' $f" >&2
         exit 1
     else
+        # The first free block above every range already in the file, the way
+        # useradd picks one. The first account on an Ubuntu install already
+        # owns 100000-165535; handing a second account the same block would
+        # let each one's containers read and write the other's files.
+        start=$(awk -F: '{ e = $2 + $3; if (e > m) m = e } END { print (m > 100000 ? m : 100000) }' "$f" 2>/dev/null || echo 100000)
+        end=$((start + 65535))
         case "$f" in
-            /etc/subuid) run "grant $me 65536 subuids" sudo usermod --add-subuids 100000-165535 "$me" ;;
-            /etc/subgid) run "grant $me 65536 subgids" sudo usermod --add-subgids 100000-165535 "$me" ;;
+            /etc/subuid) run "grant $me subuids $start-$end" sudo usermod --add-subuids "$start-$end" "$me" ;;
+            /etc/subgid) run "grant $me subgids $start-$end" sudo usermod --add-subgids "$start-$end" "$me" ;;
         esac
-        run "reload podman's view of the new range" sudo -u "$me" podman system migrate
+        granted=1
     fi
 done
+if test -n "$granted"; then
+    run "reload podman's view of the new range" sudo -u "$me" podman system migrate
+fi
 
 echo
 if test -n "$dry"; then

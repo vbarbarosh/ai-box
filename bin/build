@@ -10,6 +10,15 @@ scriptname=`basename $script`
 
 cd $scriptdir/..
 
+# Every binary the Dockerfile fetches outside apt -- Node, MinIO, yt-dlp,
+# oxipng, ImageMagick, Chrome -- is the x86_64 build. On another architecture
+# the build would run the whole package layer and then fail at the first
+# checksum with a message that does not say why. Say why here instead.
+if test "$(uname -m)" != x86_64; then
+    echo "error: the image is x86_64-only and this host is $(uname -m)." >&2
+    exit 1
+fi
+
 # One ISO week drives every refresh: the token expires the package layer in the
 # Dockerfile, and the base image moves on the same day. The stamp holds the week
 # of the last finished build, so repeat builds inside one week reuse every

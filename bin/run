@@ -10,13 +10,21 @@ scriptname=`basename $script`
 
 # The workspace is the directory you ran this from, handed to the box
 # read-write as /app. From $HOME that would be every dotfile, key and
-# repository at once.
-workspace="$PWD"
+# repository at once -- and so would any directory that contains $HOME,
+# or / itself. Compare resolved paths, so a symlink cannot slip past.
+workspace=$(realpath "$PWD")
+home=$(realpath "$HOME")
 
-if test "$workspace" = "$HOME"; then
-    echo error: executing from HOME director is not safe
+if test "$workspace" = /; then
+    echo "error: refusing to mount / as the workspace" >&2
     exit 1
 fi
+case "$home/" in
+    "$workspace"/*)
+        echo "error: $workspace contains your home directory ($home);" >&2
+        echo "       running from here would hand every dotfile and key to the box." >&2
+        exit 1 ;;
+esac
 
 # Fail fast when the image is not built. Without this podman treats `ai-box` as
 # a short name and tries to pull it from a registry, which on a host with
@@ -50,10 +58,20 @@ if test -e "$workspace/.git"; then
     opts+=(-v "$workspace/.git:/app/.git:ro")
 fi
 
-# -v /dev/null:/app/.env -- secrets never enter the box.
-if test -e "$workspace/.env"; then
-    opts+=(-v /dev/null:/app/.env:ro)
-fi
+# Secrets never enter the box: every .env and .env.* in the workspace is
+# replaced with /dev/null -- the same set .gitignore keeps out of git. The
+# committed templates (.env.example and friends) hold no secrets and stay
+# visible, or git inside the box would report them as emptied.
+# AI_BOX_MASK adds more names, space-separated, relative to the workspace:
+#   AI_BOX_MASK="credentials.json service-account.pem" bin/run
+shopt -s nullglob dotglob
+for f in "$workspace"/.env "$workspace"/.env.* ${AI_BOX_MASK:-}; do
+    f="${f#"$workspace"/}"
+    case "$f" in *.example|*.sample|*.template|*.dist) continue ;; esac
+    test -f "$workspace/$f" || continue
+    opts+=(-v "/dev/null:/app/$f:ro")
+done
+shopt -u nullglob dotglob
 
 # Mounted when present, so this script still runs on a machine that has not
 # set them up. An absent path would otherwise be created as an empty
@@ -80,6 +98,52 @@ if test -d "$cache/images"; then
     opts+=(-v "$cache/images:/var/lib/shared")
 fi
 
+# Limits on the box as a whole -- the inner engine has cgroups disabled, so
+# nothing inside can limit itself, and without these a runaway inner build
+# takes the host down with it. Each applies only when the matching cgroup
+# controller is delegated to your session (systemd does that by default on
+# current Ubuntu; bin/missings reports it). Override with an environment
+# variable; 0 means no limit.
+#
+#   AI_BOX_PIDS    default 4096
+#   AI_BOX_MEMORY  default three quarters of the host's RAM
+#   AI_BOX_CPUS    default unlimited
+controllers=$(cat "/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/cgroup.controllers" 2>/dev/null || true)
+delegated () { case " $controllers " in *" $1 "*) return 0 ;; esac; return 1; }
+
+pids=${AI_BOX_PIDS:-4096}
+memory=${AI_BOX_MEMORY:-$(awk '/^MemTotal:/ { printf "%dm", $2 * 3 / 4 / 1024 }' /proc/meminfo)}
+cpus=${AI_BOX_CPUS:-0}
+
+if test "$pids" != 0 && delegated pids; then
+    opts+=(--pids-limit "$pids")
+fi
+if test "$memory" != 0 && delegated memory; then
+    opts+=(--memory "$memory")
+fi
+if test "$cpus" != 0 && delegated cpu; then
+    opts+=(--cpus "$cpus")
+fi
+
+# A real init as PID 1: it reaps the orphans that daemonized services and
+# agent subprocesses leave behind, and forwards SIGTERM so `podman stop` ends
+# the box at once instead of after its full grace period. Podman looks for
+# catatonit in its own helper directory; a distribution that installs it
+# elsewhere gets the path spelled out. No catatonit, no --init: the box still
+# runs, with bash reaping nothing.
+if test -x /usr/libexec/podman/catatonit; then
+    opts+=(--init)
+elif command -v catatonit >/dev/null 2>&1; then
+    opts+=(--init --init-path "$(command -v catatonit)")
+fi
+
+# A terminal only when there is one: bin/missings --deep and CI call this
+# with stdin redirected, and asking for a tty there is a warning at best.
+tty=()
+if test -t 0; then
+    tty=(-t)
+fi
+
 # What each of the flags below is for:
 #
 #   --userns=keep-id:uid=1000,gid=1000 + --user 0
@@ -94,14 +158,19 @@ fi
 #   --device /dev/net/tun
 #       Uplink for the inner network namespace.
 #   --security-opt unmask=ALL
-#       The inner runtime writes /proc/sys/net/ipv4/ping_group_range.
+#       Two reasons. The inner runtime writes /proc/sys/net/ipv4/ping_group_range,
+#       which is read-only by default; and it mounts a fresh /proc for every
+#       inner container, which the kernel refuses while any part of the box's
+#       own /proc is masked. So ALL, not a narrower list -- a partial unmask
+#       fixes the first and not the second. In rootless mode the kernel still
+#       enforces the real uid on every one of those paths.
 #   --security-opt seccomp=unconfined
 #       The inner runtime calls sethostname(2) in its own UTS namespace.
 #
 # No --privileged and no docker socket: the box is rootless and unprivileged,
 # and nothing it runs can reach the host.
 
-exec podman run --rm -it \
+exec podman run --rm -i "${tty[@]}" \
     --pull=never \
     --shm-size=2g \
     "${opts[@]}" \

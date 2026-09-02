@@ -17,7 +17,10 @@ const {MsEdgeTTS, OUTPUT_FORMAT} = require('msedge-tts');
 const DEFAULT_VOICE = 'en-US-AndrewMultilingualNeural';
 const USAGE = 'usage: tts [--voice NAME] <out.mp3> <text|-> ; tts --list';
 
-main();
+main().catch(err => {
+    console.error(`tts: ${err.message}`);
+    process.exit(1);
+});
 
 async function main()
 {
@@ -68,6 +71,10 @@ function parse_args(argv)
     for (let i = 0; i < argv.length; i++) {
         switch (argv[i]) {
         case '--voice':
+            if (i + 1 >= argv.length) {
+                console.error(USAGE);
+                process.exit(2);
+            }
             out.voice = argv[++i];
             break;
         case '--list':

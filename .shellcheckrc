@@ -1,0 +1,5 @@
+# Every script starts from files/bin/templ, whose prologue sets scriptdir and
+# scriptname whether or not the script goes on to use them, with backticks and
+# without quotes. Unquoted expansion is the house style; paths here never
+# contain whitespace.
+disable=SC2034,SC2006,SC2086,SC2046,SC2206

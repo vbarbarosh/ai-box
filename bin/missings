@@ -12,13 +12,19 @@ scriptname=`basename $script`
 # required is missing, so it can gate a build in CI. `bin/configure` installs
 # whatever this reports.
 #
-#   bin/missings          checks the host
-#   bin/missings --deep   also starts the box and runs a container inside it
+#   bin/missings            checks the host
+#   bin/missings --deep     also starts the box and runs a container inside it
+#   bin/missings --versions also lists what the image was built with
 
 deep=
-if test "${1-}" = --deep; then
-    deep=1
-fi
+versions=
+for arg in "$@"; do
+    case "$arg" in
+        --deep)     deep=1 ;;
+        --versions) versions=1 ;;
+        *) echo "usage: $scriptname [--deep] [--versions]" >&2; exit 1 ;;
+    esac
+done
 
 if test -t 1; then
     green=$'\e[32m'; red=$'\e[31m'; yellow=$'\e[33m'; dim=$'\e[2m'; reset=$'\e[0m'
@@ -67,6 +73,14 @@ have podman    podman    podman
 have crun      crun      crun
 have newuidmap newuidmap uidmap
 
+# bin/run puts it at PID 1 of the box (--init) whenever it is here; without it
+# the box still runs, with bash reaping nothing.
+if test -x /usr/libexec/podman/catatonit || command -v catatonit >/dev/null 2>&1; then
+    ok "catatonit" "init for the box"
+else
+    bad optional "catatonit" "bin/configure  (apt: catatonit)"
+fi
+
 if command -v pasta >/dev/null 2>&1; then
     ok "pasta" "$(pasta --version 2>/dev/null | head -1 | cut -c1-40)"
 elif command -v slirp4netns >/dev/null 2>&1; then
@@ -100,6 +114,25 @@ if test "$userns" -gt 0; then
     ok "user namespaces" "max $userns"
 else
     bad required "user namespaces" "sysctl user.max_user_namespaces=15000"
+fi
+
+# bin/run limits the box (--pids-limit, --memory, --cpus) only through the
+# controllers systemd delegates to this session. Missing ones mean the box
+# runs uncapped, not that it fails.
+controllers=$(cat "/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/cgroup.controllers" 2>/dev/null || true)
+have_ctl=; lack_ctl=
+for c in pids memory cpu; do
+    case " $controllers " in
+        *" $c "*) have_ctl="$have_ctl $c" ;;
+        *)        lack_ctl="$lack_ctl $c" ;;
+    esac
+done
+if test -z "$lack_ctl"; then
+    ok "cgroup delegation" "pids memory cpu"
+elif test -n "$have_ctl"; then
+    bad optional "cgroup delegation" "have${have_ctl}; box runs without${lack_ctl} limit"
+else
+    bad optional "cgroup delegation" "none; box runs with no limits (needs a systemd user session)"
 fi
 
 echo
@@ -152,6 +185,17 @@ echo
 echo "image"
 if podman image exists ai-box 2>/dev/null; then
     ok "ai-box" "$(podman image inspect ai-box --format '{{.Size}}' 2>/dev/null | awk '{printf "%.1f GB", $1/1000000000}')"
+    # What the build resolved: every component the Dockerfile fetches at its
+    # current version is recorded there, one name=version per line. No
+    # --userns here, so this never triggers the id-mapped layer copy.
+    manifest=$(podman run --rm --pull=never --entrypoint cat ai-box /etc/ai-box/versions 2>/dev/null || true)
+    if test -n "$manifest"; then
+        if test -n "$versions"; then
+            echo "$manifest" | sed "s/^/  ${dim}          /; s/\$/${reset}/"
+        else
+            ok "versions" "$(echo "$manifest" | wc -l) recorded (--versions to list)"
+        fi
+    fi
 else
     bad optional "ai-box" "bin/build"
 fi
@@ -165,11 +209,12 @@ fi
 echo
 # Agent state, all under $short. Named by leaf so the columns stay aligned.
 echo "mounts bin/run will make ${dim}(agent state under $short)${reset}"
-test -d "$data/.claude"      && ok ".claude"      "agent state, rw"   || bad optional ".claude"      "created on first run"
-test -f "$data/.claude.json" && ok ".claude.json" "agent config, rw"  || bad optional ".claude.json" "created on first run"
-test -d "$data/.codex"       && ok ".codex"       "agent state, rw"   || bad optional ".codex"       "created on first run"
-test -f "$data/.codex.json"  && ok ".codex.json"  "agent config, rw"  || bad optional ".codex.json"  "created on first run"
-test -d "$HOME/repos"        && ok "~/repos"      "/repos, read-only" || bad optional "~/repos"      "mkdir it to mount it"
+if test -d "$data/.claude";      then ok ".claude"      "agent state, rw";   else bad optional ".claude"      "created on first run"; fi
+if test -f "$data/.claude.json"; then ok ".claude.json" "agent config, rw";  else bad optional ".claude.json" "created on first run"; fi
+if test -d "$data/.codex";       then ok ".codex"       "agent state, rw";   else bad optional ".codex"       "created on first run"; fi
+if test -f "$data/.codex.json";  then ok ".codex.json"  "agent config, rw";  else bad optional ".codex.json"  "created on first run"; fi
+# shellcheck disable=SC2088  # the tilde is a label, not a path
+if test -d "$HOME/repos";        then ok '~/repos'      "/repos, read-only"; else bad optional '~/repos'      "mkdir it to mount it"; fi
 
 # Stale container records naming a runtime that is no longer installed make
 # every podman command noisy. Worth naming, because the error does not say so.
@@ -185,8 +230,9 @@ if test -n "$deep"; then
     echo
     echo "deep check"
     if podman image exists ai-box 2>/dev/null; then
-        # bin/run allocates a tty, and a tty turns \n into \r\n.
-        if out=$("$scriptdir/run" docker run --rm alpine echo nested-ok 2>&1 | tr -d '\r' | tail -1) \
+        # stdin is redirected, so bin/run asks for no tty and the output has
+        # no \r\n; the tr stays for a bin/run invoked some other way.
+        if out=$("$scriptdir/run" docker run --rm alpine echo nested-ok 2>&1 </dev/null | tr -d '\r' | tail -1) \
            && test "$out" = nested-ok; then
             ok "container inside box" "docker run works"
         else

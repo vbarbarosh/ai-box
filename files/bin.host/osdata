@@ -4,6 +4,10 @@
 # http://redsymbol.net/articles/unofficial-bash-strict-mode
 set -o nounset -o errexit -o pipefail
 
+script=`realpath $0`
+scriptdir=`dirname $script`
+scriptname=`basename $script`
+
 echo
 
 hostnamectl | grep 'Operating System'

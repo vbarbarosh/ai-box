@@ -1,0 +1,41 @@
+name: lint
+
+# Static checks only. The image is multi-gigabyte and the nested-Podman test
+# needs a host with delegated cgroups and /dev/fuse, so neither runs here;
+# `bin/build && bin/missings --deep` on a real host is still the acceptance test.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash -n
+        run: |
+          for f in bin/* files/docker-entrypoint files/bin/* files/bin.host/*; do
+            bash -n "$f"
+          done
+
+      - name: shellcheck
+        run: |
+          sudo apt-get install -y --no-install-recommends shellcheck
+          shellcheck -S warning bin/* files/docker-entrypoint files/bin/* files/bin.host/*
+
+      - name: hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+
+      - name: node --check, python compile
+        run: |
+          node --check files/bin.ai/tts
+          python3 -c "import ast, sys; ast.parse(open('files/bin.ai/transcribe').read())"
+
+      - name: executable bits
+        run: |
+          bad=$(git ls-files -s bin files/bin files/bin.host files/bin.ai files/docker-entrypoint | awk '$1 != "100755" { print $4 }')
+          test -z "$bad" || { echo "not executable in git: $bad"; exit 1; }

@@ -17,7 +17,7 @@ No Docker, no root daemon, no `/dev/kvm`. The environment runs under **rootless
 Podman**, so the host needs Podman and the pieces rootless mode depends on:
 
 ```bash
-sudo apt install -y podman uidmap passt slirp4netns crun
+sudo apt install -y podman uidmap passt slirp4netns crun catatonit
 ```
 
 Plus, from the kernel and your user account:
@@ -66,8 +66,10 @@ bin/run claude     # ...and go straight into an agent
 bin/run make test  # ...or run one command and exit
 ```
 
-`bin/run` refuses to start from `$HOME`, because `$PWD` is handed to the box
-read-write and from `$HOME` that would be every dotfile and key at once.
+`bin/run` refuses to start from `$HOME`, from any directory that contains it,
+or from `/`, because `$PWD` is handed to the box read-write and from there
+that would be every dotfile and key at once. Paths are resolved first, so a
+symlink does not get around it.
 
 ### What `bin/run` gives the box
 
@@ -75,7 +77,7 @@ read-write and from `$HOME` that would be every dotfile and key at once.
 |---|---|---|
 | `$PWD` → `/app` | rw | the project; the only writable host path |
 | `$PWD/.git` | **ro** | mounted over the writable workspace, when present |
-| `$PWD/.env` | hidden | replaced with `/dev/null`, so secrets never enter the box |
+| `$PWD/.env`, `$PWD/.env.*` | hidden | each replaced with `/dev/null`, so secrets never enter the box. `AI_BOX_MASK="a.pem b.json"` hides more |
 | `~/repos` → `/repos` | ro | |
 | `~/.local/share/ai-box/data/.claude{,.json}` → `~/.claude{,.json}` | rw | so the agent keeps its login and history |
 | `~/.local/share/ai-box/data/.codex{,.json}` → `~/.codex{,.json}` | rw | same |
@@ -91,6 +93,23 @@ directory and the agents want files there.
 `~/repos` are mounted only when they exist, so a bind mount never silently
 creates an empty directory in your home.
 
+### Limits on the box
+
+The inner engine has no cgroups of its own, so nothing inside the box can
+limit itself. `bin/run` limits the box as a whole instead, through whatever
+cgroup controllers systemd has delegated to your session (`bin/missings`
+reports which):
+
+| variable | default | |
+|---|---|---|
+| `AI_BOX_PIDS` | 4096 | `--pids-limit`; a fork bomb inside stops here |
+| `AI_BOX_MEMORY` | three quarters of the host's RAM | `--memory`; the box is OOM-killed, the host is not |
+| `AI_BOX_CPUS` | unlimited | `--cpus` |
+
+Set one to `0` to lift it. `bin/run` also puts a real init at PID 1
+(`--init`, Podman's own `catatonit`) whenever the host has it, so orphaned
+processes are reaped and `podman stop` ends the box at once.
+
 ### Helpers on the `PATH`
 
 `files/bin/` is installed to `~/bin` inside the box, so these are just there:
@@ -105,13 +124,11 @@ creates an empty directory in your home.
 | `g` | recursive `ag` search: `g pattern` |
 | `templ` | the skeleton these scripts start from: `templ > new && vi new` |
 
-A few others ship in that directory and do not work in a container -- they want
-`systemd`, `ufw`, `sudo` or an X clipboard, none of which the image carries.
-
-**`dind` / `dd` are no longer needed.** They used to add `--privileged` and
-start a `dockerd`; docker now works in the box unprivileged with no daemon at
-all. Both arguments are still accepted, and ignored with a note, so old
-invocations keep working.
+`hwdata` reports what it can: `parted` is not in the image, so the partition
+table check is skipped. `g` with no argument wants an X clipboard the image does
+not have and says so. Scripts that only make sense on a real host -- `netdata`,
+`osdata`, `showmyip`, `showufw` -- live in `files/bin.host/` and are not copied
+into the image.
 
 ## Running containers inside it
 
@@ -122,7 +139,9 @@ other usual answer, and that is worse — the containers are then siblings on th
 host, they outlive the environment, and `--rm` stops meaning anything.
 
 The environment now runs under **rootless Podman** and the engine *inside* it is
-Podman too. `podman-docker` provides a real `docker` command, so nothing you
+Podman too -- Ubuntu 24.04's `podman` 4.9 and `podman-compose` 1.0.6, not the
+5.x on the host, so do not expect 5.x-only features or the newest compose-spec
+keys inside. `podman-docker` provides a real `docker` command, so nothing you
 type changes.
 
 ## Why this clears every constraint at once
@@ -168,16 +187,15 @@ Bonus: files you create in `/app` come back owned by **you**, not by `root`.
 `usermod -aG docker ubuntu` is gone: there is no daemon and no socket, and
 membership in a `docker` group was itself root-equivalent.
 
-**`files/docker-entrypoint`** — `DOCKER_DIND` is kept but does nothing; there is
-no daemon to start and no poll loop to wait through. It now also creates
-`/run/user/1000` before dropping privileges, because an inner engine with no
-runtime directory of its own drops a pause-process file into `$PWD` — straight
-into your mounted workspace.
+**`files/docker-entrypoint`** — nothing to start and no poll loop to wait
+through; `DOCKER_DIND` is gone. It now creates `/run/user/1000` before dropping
+privileges, because an inner engine with no runtime directory of its own drops
+a pause-process file into `$PWD` — straight into your mounted workspace.
 
 **`bin/run`** — `podman run` with the flags that make nesting work. Each is
 there for one specific reason; see the comments in the script.
 
-**`bin/build`** — `docker build` → `podman build`. All 13 `--mount=type=cache`
+**`bin/build`** — `docker build` → `podman build`. All 14 `--mount=type=cache`
 BuildKit cache mounts work unchanged.
 
 ## Two things that behave differently
@@ -192,7 +210,23 @@ BuildKit cache mounts work unchanged.
 calls `sethostname(2)`, which the default profile blocks. It widens the syscall
 surface, but the sandbox is still rootless and user-namespaced — this is not
 host root. A narrow custom profile adding just `sethostname` would recover most
-of it.
+of it. `unmask=ALL` is in the same category: the inner runtime mounts a fresh
+`/proc` for every container it starts, and the kernel refuses that while any
+part of the box's own `/proc` is masked, so a narrower unmask is not enough.
+The box also has full outbound network; the agent needs registries and APIs.
+
+### What the image was built with
+
+Only six versions are pinned as build arguments (Node, Playwright, Puppeteer,
+Cypress, ImageMagick, oxipng). Everything else -- the Python and npm libraries,
+phpredis, Composer, MinIO, yt-dlp, Chrome, and the two agent CLIs -- asks its
+upstream for the current release at build time, so two builds a week apart
+differ. Each layer records what it resolved in `/etc/ai-box/versions`, and
+`bin/missings --versions` prints it for the image you have. Every download is
+checksum-verified, but the checksum comes from the same publisher as the
+artifact: that guards against corruption and torn releases, not against a
+compromised upstream. npm, pip and apt add their own registry-side integrity
+checks on top.
 
 ## Faster inner runs
 

@@ -15,43 +15,11 @@ scriptname=`basename $script`
 #	perform a recursive search for text in arguments
 
 if test -z "$*"; then
-    ag -a --hidden "`xclip -selection clipboard -out`"
+    if ! command -v xclip >/dev/null 2>&1; then
+        echo "usage: g PATTERN   (no clipboard here: xclip is not installed)" >&2
+        exit 2
+    fi
+    ag -a --hidden "$(xclip -selection clipboard -out)"
 else
     ag -a --hidden "$@"
-fi
-
-exit 0
-
-# Reference
-# =========
-#
-# ID database utilities
-# http://www.gnu.org/software/idutils/manual/idutils.html
-
-# http://stackoverflow.com/a/911213
-if test -t 1; then
-	color='--color=always'
-else
-	color='--color=never'
-fi
-
-if test -t 0; then
-	recursive='--recursive .'
-else
-	recursive=''
-fi
-
-# find | g main
-#	perform a search from stdin
-#
-# g
-#	perform a recursive search for `clipboard`
-#
-# g main
-#	perform a recursive search for text in arguments
-
-if test -z "$*"; then
-	grep --ignore-case $color "`xclip -selection clipboard -out`" $recursive | less --raw-control-chars
-else
-	grep --ignore-case $color "$@" $recursive | less --raw-control-chars
 fi

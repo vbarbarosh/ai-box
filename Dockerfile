@@ -25,11 +25,11 @@ FROM ubuntu:24.04 AS runtime
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG UBUNTU_REFRESH=manual
-ARG NODE_VERSION=24.14.1
-ARG PLAYWRIGHT_VERSION=1.61.1
-ARG PUPPETEER_VERSION=25.3.0
-ARG CYPRESS_VERSION=14.2.1
-ARG IMAGEMAGICK_VERSION=7.1.2-29
+ARG NODE_VERSION=24.20.0
+ARG PLAYWRIGHT_VERSION=1.62.1
+ARG PUPPETEER_VERSION=25.9.0
+ARG CYPRESS_VERSION=14.5.4
+ARG IMAGEMAGICK_VERSION=7.1.2-30
 ARG OXIPNG_VERSION=10.2.0
 ARG WHISPER_MODEL=small
 ARG TZ=Europe/Chisinau
@@ -127,6 +127,14 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && exiftran -h > /dev/null \
     && mv /tmp/docker-clean /etc/apt/apt.conf.d/docker-clean
 
+# What the build resolved, one name=version per line. Most components below
+# ask their upstream for the current release inside the layer, so this file is
+# the only record of what a given image carries; `bin/missings --versions`
+# prints it. Owned by ubuntu so the layers that run as ubuntu can append.
+RUN install -d -o ubuntu -g ubuntu -m 0755 /etc/ai-box \
+    && printf 'ubuntu_refresh=%s\n' "${UBUNTU_REFRESH}" > /etc/ai-box/versions \
+    && chown ubuntu:ubuntu /etc/ai-box/versions
+
 # The release directory carries SHASUMS256.txt for every artifact in it, so
 # the tarball is checked against its own publisher before it is unpacked.
 RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" -o /tmp/SHASUMS256.txt \
@@ -135,7 +143,8 @@ RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" -o /tmp
     && tar -xJf "/tmp/node-v${NODE_VERSION}-linux-x64.tar.xz" -C /usr/local --strip-components=1 \
     && rm "/tmp/node-v${NODE_VERSION}-linux-x64.tar.xz" /tmp/SHASUMS256.txt \
     && node --version \
-    && npm --version
+    && npm --version \
+    && echo "node=${NODE_VERSION}" >> /etc/ai-box/versions
 
 # buildah re-creates the parent directory of a cache-mount target as root,
 # where BuildKit leaves its owner alone. Restore it before dropping to ubuntu,
@@ -153,7 +162,8 @@ RUN --mount=type=cache,target=/home/ubuntu/.npm,uid=1000,gid=1000 \
         "cypress@${CYPRESS_VERSION}" \
     && playwright --version \
     && node -e "console.log('Puppeteer ' + require('puppeteer/package.json').version)" \
-    && cypress version
+    && cypress version \
+    && printf 'playwright=%s\npuppeteer=%s\ncypress=%s\n' "${PLAYWRIGHT_VERSION}" "${PUPPETEER_VERSION}" "${CYPRESS_VERSION}" >> /etc/ai-box/versions
 
 USER root
 
@@ -197,7 +207,8 @@ RUN --mount=type=cache,target=/home/ubuntu/.cache/pip,uid=1000,gid=1000 \
         "rembg[cpu,cli]==${rembg_version}" \
     && python3 -c "from rembg import new_session; new_session()" \
     && python3 -c "import cv2, numpy; print('OpenCV', cv2.__version__, '/ numpy', numpy.__version__)" \
-    && rembg --help > /dev/null
+    && rembg --help > /dev/null \
+    && printf 'opencv-python-headless=%s\nrembg=%s\n' "${opencv_version}" "${rembg_version}" >> /etc/ai-box/versions
 
 # QR, OCR, and speech-synthesis libraries for ad-hoc node scripts (NODE_PATH
 # points here). msedge-tts speaks screencast narration through the Edge voices;
@@ -215,7 +226,8 @@ RUN --mount=type=cache,target=/home/ubuntu/.npm,uid=1000,gid=1000 \
         "jsqr@${jsqr_version}" \
         "tesseract.js@${tesseract_version}" \
     && npm install --global --no-audit --no-fund --ignore-scripts "msedge-tts@${msedge_tts_version}" \
-    && node -e "require('jsqr'); require('@zxing/library'); require('msedge-tts'); console.log('jsqr + zxing + msedge-tts ok')"
+    && node -e "require('jsqr'); require('@zxing/library'); require('msedge-tts'); console.log('jsqr + zxing + msedge-tts ok')" \
+    && printf 'zxing=%s\njsqr=%s\ntesseract.js=%s\nmsedge-tts=%s\n' "${zxing_version}" "${jsqr_version}" "${tesseract_version}" "${msedge_tts_version}" >> /etc/ai-box/versions
 
 # Speech in a recording is unreadable without transcription: faster-whisper
 # turns an audio or video track into text. CTranslate2 runs it on the CPU
@@ -228,7 +240,8 @@ RUN --mount=type=cache,target=/home/ubuntu/.cache/pip,uid=1000,gid=1000 \
         "faster-whisper==${faster_whisper_version}" \
     && ffmpeg -nostdin -v error -f lavfi -i sine=frequency=440:sample_rate=16000 -t 1 -y /tmp/probe.wav \
     && python3 -c "from faster_whisper import WhisperModel; model = WhisperModel('${WHISPER_MODEL}', device='cpu', compute_type='int8'); segments, info = model.transcribe('/tmp/probe.wav'); list(segments); print('faster-whisper ${WHISPER_MODEL}', info.language)" \
-    && rm /tmp/probe.wav
+    && rm /tmp/probe.wav \
+    && printf 'faster-whisper=%s\nwhisper_model=%s\n' "${faster_whisper_version}" "${WHISPER_MODEL}" >> /etc/ai-box/versions
 
 USER root
 
@@ -242,7 +255,8 @@ RUN redis_version="$(curl -fsSL https://pecl.php.net/rest/r/redis/latest.txt | t
     && phpenmod redis \
     && php -r 'exit(extension_loaded("redis") ? 0 : 1);' \
     && php -r 'echo "phpredis ", phpversion("redis"), PHP_EOL;' \
-    && rm -rf /tmp/pear
+    && rm -rf /tmp/pear \
+    && echo "phpredis=${redis_version}" >> /etc/ai-box/versions
 
 # installer.sig is the SHA-384 of the installer that getcomposer.org is
 # serving, published separately from it -- the check Composer's own
@@ -257,7 +271,8 @@ RUN composer_version="$(curl -fsSL https://getcomposer.org/versions | jq -r '.st
         --install-dir=/usr/local/bin \
         --filename=composer \
     && rm /tmp/composer-setup.php \
-    && composer --version
+    && composer --version \
+    && echo "composer=${composer_version}" >> /etc/ai-box/versions
 
 # The published checksum arrives before the binary it describes, so a release
 # that lands between the two downloads fails the check instead of passing it.
@@ -270,14 +285,16 @@ RUN curl -fsSL https://dl.min.io/server/minio/release/linux-amd64/minio.sha256su
     && rm /tmp/minio.sha256sum /tmp/mc.sha256sum \
     && chmod 0755 /usr/local/bin/minio /usr/local/bin/mc \
     && minio --version \
-    && mc --version
+    && mc --version \
+    && printf 'minio=%s\nmc=%s\n' "$(minio --version 2>/dev/null | awk '/version/ { print $3; exit }')" "$(mc --version 2>/dev/null | awk '/version/ { print $3; exit }')" >> /etc/ai-box/versions
 
 RUN curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS -o /tmp/SHA2-256SUMS \
     && curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
     && (cd /usr/local/bin && grep '  yt-dlp$' /tmp/SHA2-256SUMS | sha256sum -c -) \
     && rm /tmp/SHA2-256SUMS \
     && chmod 0755 /usr/local/bin/yt-dlp \
-    && yt-dlp --version
+    && yt-dlp --version \
+    && echo "yt-dlp=$(yt-dlp --version)" >> /etc/ai-box/versions
 
 # oxipng is absent from the Ubuntu archive, so it comes from the project's own
 # release. GitHub publishes each asset's digest next to the download, so the
@@ -289,7 +306,8 @@ RUN oxipng_dir="oxipng-${OXIPNG_VERSION}-x86_64-unknown-linux-musl" \
     && echo "${oxipng_digest#sha256:}  /tmp/oxipng.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/oxipng.tar.gz -C /usr/local/bin --strip-components=1 "${oxipng_dir}/oxipng" \
     && rm /tmp/oxipng.tar.gz \
-    && oxipng --version
+    && oxipng --version \
+    && echo "oxipng=${OXIPNG_VERSION}" >> /etc/ai-box/versions
 
 # Ubuntu 24.04 ships ImageMagick 6, which answers to `convert` and has no
 # `magick` command. The upstream AppImage puts ImageMagick 7 beside it: the
@@ -309,7 +327,8 @@ RUN magick_asset="ImageMagick-${IMAGEMAGICK_VERSION}-gcc-x86_64.AppImage" \
     && ln -s /opt/imagemagick/AppRun /usr/local/bin/magick \
     && magick -version \
     && magick -size 8x8 gradient:red-blue /tmp/probe.webp \
-    && rm /tmp/probe.webp
+    && rm /tmp/probe.webp \
+    && echo "imagemagick=${IMAGEMAGICK_VERSION}" >> /etc/ai-box/versions
 
 # The container engine, daemon NOT included. Podman is daemonless and runs
 # unprivileged, so the environment needs neither --privileged nor a bound-in
@@ -334,7 +353,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         slirp4netns \
         uidmap \
     && docker --version \
-    && podman --version
+    && podman --version \
+    && printf 'podman=%s\npodman-compose=%s\n' "$(dpkg-query -W -f='${Version}' podman)" "$(dpkg-query -W -f='${Version}' podman-compose)" >> /etc/ai-box/versions
 
 # Ubuntu ships newuidmap/newgidmap setuid-root; Fedora ships them with file
 # capabilities. Only the capability form can write a NESTED uid_map, which is
@@ -378,6 +398,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && test "$(dpkg-query -W -f='${Version}' google-chrome-stable)" = "${chrome_version}" \
     && rm /tmp/google-chrome.deb /tmp/Packages \
     && google-chrome --version \
+    && echo "google-chrome=${chrome_version}" >> /etc/ai-box/versions \
     && mv /tmp/docker-clean /etc/apt/apt.conf.d/docker-clean
 
 # Times shown by the shell, by build tools, and by recorded output are the local
@@ -424,14 +445,16 @@ RUN --mount=type=bind,from=refresh-claude,source=/claude,target=/tmp/refresh \
     CLAUDE_VERSION="$(jq -r .version /tmp/refresh/package.json)" \
     && echo "Installing Claude ${CLAUDE_VERSION}..." \
     && npm install --global --no-audit --no-fund "@anthropic-ai/claude-code@${CLAUDE_VERSION}" \
-    && "$HOME/.local/bin/claude" --version
+    && "$HOME/.local/bin/claude" --version \
+    && echo "claude-code=${CLAUDE_VERSION}" >> /etc/ai-box/versions
 
 RUN --mount=type=bind,from=refresh-codex,source=/codex,target=/tmp/refresh \
     --mount=type=cache,target=/home/ubuntu/.npm,uid=1000,gid=1000 \
     CODEX_VERSION="$(jq -r .version /tmp/refresh/package.json)" \
     && echo "Installing Codex ${CODEX_VERSION}..." \
     && npm install --global --no-audit --no-fund "@openai/codex@${CODEX_VERSION}" \
-    && codex --version
+    && codex --version \
+    && echo "codex=${CODEX_VERSION}" >> /etc/ai-box/versions
 
 USER root
 
