@@ -1,3 +1,5 @@
+# Everything is excluded and only what the image needs is added back, so
+# data/ -- agent logins, the shared image store -- never enters the context.
 **
 !Dockerfile
 !.dockerignore

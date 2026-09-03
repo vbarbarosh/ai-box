@@ -79,19 +79,52 @@ symlink does not get around it.
 | `$PWD/.git` | **ro** | mounted over the writable workspace, when present |
 | `$PWD/.env`, `$PWD/.env.*` | hidden | each replaced with `/dev/null`, so secrets never enter the box. `AI_BOX_MASK="a.pem b.json"` hides more |
 | `~/repos` → `/repos` | ro | |
-| `~/.local/share/ai-box/data/.claude{,.json}` → `~/.claude{,.json}` | rw | so the agent keeps its login and history |
-| `~/.local/share/ai-box/data/.codex{,.json}` → `~/.codex{,.json}` | rw | same |
+| `data/claude{,.json}` → `~/.claude{,.json}` | rw | so the agent keeps its login and history |
+| `data/codex{,.json}` → `~/.codex{,.json}` | rw | same |
+| `data/images` → `/var/lib/shared` | rw | the shared image store, when it exists |
 
-Agent state is the box's own, under `$XDG_DATA_HOME` (`~/.local/share`) rather
-than your home dotfiles: the box logs in, keeps its history and rewrites its
-config without touching the `~/.claude` or `~/.codex` you use outside it.
-`bin/run` creates that directory and the two JSON files on first run, because a
-bind mount whose source does not exist would otherwise be created as a
-directory and the agents want files there.
+Agent state is the box's own, kept out of your home dotfiles: the box logs in,
+keeps its history and rewrites its config without touching the `~/.claude` or
+`~/.codex` you use outside it. `bin/run` creates the directory and the two JSON
+files on first run, because a bind mount whose source does not exist would
+otherwise be created as a directory and the agents want files there.
+
+Those paths are relative to **this repo**, not to the directory you run from --
+see [Where the box keeps its state](#where-the-box-keeps-its-state).
 
 `--shm-size=2g` is set for Chrome/Playwright. `$PWD/.git`, `$PWD/.env` and
 `~/repos` are mounted only when they exist, so a bind mount never silently
 creates an empty directory in your home.
+
+### Where the box keeps its state
+
+Everything the box keeps between runs lives in this repo, under `data/`:
+
+```
+data/claude/  data/claude.json     the agents' state and logins
+data/codex/   data/codex.json
+data/images/                       shared image store, for inner docker run
+data/refresh                       the ISO week of the last finished build
+```
+
+The names lose their leading dots on this side of the mount -- nothing here is
+hidden from the person who owns it, and `ls data/` should show what the box is
+keeping. They arrive as `~/.claude` and `~/.codex` inside the box.
+
+This is not an app you install once. You pull the repo and rebuild it, often
+more than once a day, so its state belongs beside the tree it was built from:
+one directory holds all of it, `rm -rf data` is the whole reset, and it leaves
+nothing anywhere else on the host. `data/` is gitignored, and `.dockerignore`
+keeps it out of the build context.
+
+The path is anchored to the scripts, not to `$PWD`, so `bin/run` from any
+workspace finds the same state. Two clones are two boxes: separate logins,
+separate image stores. Deleting a clone deletes its state with it -- and a
+fresh clone starts logged out, so keep the clone you use.
+
+The other side of state living in an ignored directory: `git clean -xdf` in
+this repo takes the logins and the image store with it. `git pull` and a
+rebuild, the daily path, leave `data/` alone.
 
 ### Limits on the box
 
@@ -234,8 +267,10 @@ Inner `docker run <image>` pulls by default. Pre-seed a read-only store on the
 host and `bin/run` mounts it automatically:
 
 ```bash
-podman --root ~/.cache/ai-box/images pull alpine:latest python:3.12-slim
+podman --root "$PWD/data/images" pull alpine:latest python:3.12-slim
 ```
+
+(from the root of this repo -- `--root` wants an absolute path)
 
 Inner containers then start with no pull and no network.
 

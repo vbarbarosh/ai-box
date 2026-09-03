@@ -3,8 +3,13 @@
 .env
 .env.*
 
-# Agent state that bin/run touches into existence in $HOME, harmless here but
-# never worth committing if a run is ever pointed at the tree.
+# Everything the box keeps between runs: the agents' state and logins, the
+# shared image store, the build stamp. bin/run and bin/build create it as
+# needed; none of it is ours to commit, and a fresh clone starts without it.
+/data/
+
+# The dotted originals loose in the tree, from an agent run pointed at this
+# repo. What the box keeps is data/claude and data/codex, undotted.
 .claude.json
 .codex.json
 .claude/

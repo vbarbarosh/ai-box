@@ -32,11 +32,10 @@ else
     green=; red=; yellow=; dim=; reset=
 fi
 
-# The same paths bin/run uses.
-data="${XDG_DATA_HOME:-$HOME/.local/share}/ai-box/data"
-cache="${XDG_CACHE_HOME:-$HOME/.cache}/ai-box"
+# The same path bin/run uses: everything the box keeps between runs lives in
+# this repo, under data/. Shortened for display when it sits under $HOME.
+data="$(dirname "$scriptdir")/data"
 short="${data/#$HOME/\~}"
-cshort="${cache/#$HOME/\~}"
 
 missing_required=0
 missing_optional=0
@@ -200,19 +199,20 @@ else
     bad optional "ai-box" "bin/build"
 fi
 
-if test -d "$cache/images"; then
-    ok "shared image store" "$(podman --root "$cache/images" --storage-driver overlay images -q 2>/dev/null | wc -l) images"
+if test -d "$data/images"; then
+    ok "shared image store" "$(podman --root "$data/images" --storage-driver overlay images -q 2>/dev/null | wc -l) images"
 else
-    bad optional "shared image store" "podman --root $cshort/images pull alpine:latest"
+    bad optional "shared image store" "podman --root $short/images pull alpine:latest"
 fi
 
 echo
-# Agent state, all under $short. Named by leaf so the columns stay aligned.
-echo "mounts bin/run will make ${dim}(agent state under $short)${reset}"
-if test -d "$data/.claude";      then ok ".claude"      "agent state, rw";   else bad optional ".claude"      "created on first run"; fi
-if test -f "$data/.claude.json"; then ok ".claude.json" "agent config, rw";  else bad optional ".claude.json" "created on first run"; fi
-if test -d "$data/.codex";       then ok ".codex"       "agent state, rw";   else bad optional ".codex"       "created on first run"; fi
-if test -f "$data/.codex.json";  then ok ".codex.json"  "agent config, rw";  else bad optional ".codex.json"  "created on first run"; fi
+# Agent state, all under $short, undotted here and dotted inside the box.
+# Named by leaf so the columns stay aligned.
+echo "mounts bin/run will make ${dim}(box state under $short)${reset}"
+if test -d "$data/claude";      then ok "claude"      "agent state, rw";   else bad optional "claude"      "created on first run"; fi
+if test -f "$data/claude.json"; then ok "claude.json" "agent config, rw";  else bad optional "claude.json" "created on first run"; fi
+if test -d "$data/codex";       then ok "codex"       "agent state, rw";   else bad optional "codex"       "created on first run"; fi
+if test -f "$data/codex.json";  then ok "codex.json"  "agent config, rw";  else bad optional "codex.json"  "created on first run"; fi
 # shellcheck disable=SC2088  # the tilde is a label, not a path
 if test -d "$HOME/repos";        then ok '~/repos'      "/repos, read-only"; else bad optional '~/repos'      "mkdir it to mount it"; fi
 
