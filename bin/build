@@ -40,24 +40,33 @@ podman build $pull \
 mkdir -p "$(dirname $stamp)"
 echo "$ubuntu_refresh" > "$stamp"
 
-# bin/run maps your uid into the box (--userns=keep-id). On native overlay
-# podman makes an ID-shifted COPY of every layer the first time it maps a
-# given image id -- so after any non-cached build -- which on an image this
-# size takes minutes and looks exactly like a hang. Measured on podman 5.7:
-# the idmapped-lower-layer fast path does not avoid this, so the copy is the
-# expected path rather than a sign of anything wrong with the host.
-# fuse-overlayfs skips it, but breaks nested `docker build` against the
-# shared image store, so it is not a workaround.
+# bin/run maps your uid into the box (--userns=keep-id), which is not the
+# mapping the store is written with. On native overlay podman reconciles the
+# two by copying: containers/storage lays a layer over the image and chowns
+# every path through the mount, which copies up every file under it. So the
+# bill is the WHOLE image -- not the layers that changed -- every time the
+# image id changes, which on this one is ~8.5 GB and about two minutes, and
+# looks exactly like a hang.
+#
+# Rootless there is no fast path. The overlay driver's idmapped-mount probe
+# returns false whenever euid is not 0, before it asks the kernel, so this
+# does not age out with a newer kernel or podman. fuse-overlayfs does skip
+# the copy, but breaks nested `docker build` against the shared image store.
+# Building the image under the mapping does not help either: buildah commits
+# every layer in the store's mapping whatever --userns-uid-map says, so the
+# copy just moves inside the build, once per step. Both measured -- see
+# notes/idmap-2026-09-04.md.
 #
 # Do it here, once, while you are already waiting for a build, rather than in
 # front of whoever runs bin/run next.
 
 graphroot=$(podman info --format '{{.Store.GraphRoot}}' 2>/dev/null || echo "")
 
-# Free space on the store's filesystem, in bytes. The copy hardlinks what it
-# can, so the fall in free space is well under the bytes being processed --
-# 523 MB observed for an ~8.5 GB copy. It is a liveness signal, not a measure
-# of how much is left, so what is reported below is written, not copied.
+# Free space on the store's filesystem, in bytes. Every file the copy touches
+# changes owner, so little of it can be hardlinked and the fall in free space
+# tracks the copy closely -- 8.5 GB for this image, measured. It is a liveness
+# signal, not a measure of how much is left, so what is reported below is
+# written, not copied.
 free_bytes () {
     test -n "$graphroot" || { echo 0; return; }
     df -kP "$graphroot" 2>/dev/null | awk 'NR==2 {print $4 * 1024}'
@@ -124,7 +133,8 @@ while kill -0 $warm_pid 2>/dev/null; do
     test "$elapsed" -ge 2 || continue
 
     if test -z "$shown"; then
-        echo "warming the id-mapped layers (only the layers that changed)..."
+        echo "copying the image to match bin/run's id mapping (all of it,"
+        echo "every build -- this step is not incremental)..."
         shown=1
     fi
 
