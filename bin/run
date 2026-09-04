@@ -96,7 +96,9 @@ opts+=(-v "$data/claude:/home/ubuntu/.claude")
 
 # An image store shared in from the host: `docker run <image>` inside the box
 # then needs no pull and no network. Fill it with
-#   podman --root <this repo>/data/images pull alpine:latest
+#   bin/images mysql:8.0
+# from the host: a pull from inside lands in the box's own store and goes with
+# it.
 #
 # Deliberately not :ro. Building FROM an image that lives only in this store
 # makes the inner engine create and remove a transient mountpoint inside it

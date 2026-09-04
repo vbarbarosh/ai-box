@@ -60,6 +60,7 @@ bin/configure      # install what the host is missing (idempotent)
 bin/missings       # report what is here and what is not; --deep also runs a
                    # container inside the box
 bin/build          # build the image (tag: ai-box)
+bin/images         # list the shared image store; add: bin/images mysql:8.0
 
 bin/run            # open the box on the current directory
 bin/run claude     # ...and go straight into an agent
@@ -238,6 +239,29 @@ BuildKit cache mounts work unchanged.
   environment as a whole from outside instead.
 - **`docker buildx` is gone.** It was only ever called to print its version.
   `docker build` and `docker compose` are unaffected.
+
+## One of each
+
+There used to be four Chromiums in the image and two ImageMagicks. Now:
+
+- **One Chrome.** `google-chrome-stable` is it. Puppeteer is pointed at it with
+  `PUPPETEER_EXECUTABLE_PATH` instead of downloading its own copy, which is the
+  same browser a couple of patch releases behind. `puppeteer.launch()` needs no
+  argument; the build asserts `executablePath()` resolves there.
+- **One Chromium for Playwright**, installed with `--no-shell`. A headless
+  launch uses the full browser's headless mode rather than a second 262 MB
+  build whose only job is to be the headless one.
+- **One ImageMagick, version 7.** The apt package (version 6) is gone. `magick`
+  and the legacy names — `convert`, `identify`, `mogrify`, `composite`,
+  `montage`, `compare` — are all symlinks to the same AppImage, which
+  dispatches on `argv[0]`. `convert` still works; it is no longer a different
+  ImageMagick from `magick`.
+
+That is 925 MB measured — 652 + 262 + 11 — and `bin/build`'s id-mapped copy is
+proportional to the image, so it comes off every build as well as off the disk.
+Cypress still carries its own Electron (679 MB) and Playwright still installs
+Firefox and WebKit (595 MB); those are tools you either use or do not, rather
+than duplicates.
 
 `seccomp=unconfined` on the sandbox is worth knowing about: the inner runtime
 calls `sethostname(2)`, which the default profile blocks. It widens the syscall

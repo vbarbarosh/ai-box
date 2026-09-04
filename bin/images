@@ -1,0 +1,64 @@
+#!/bin/bash
+
+# http://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
+# http://redsymbol.net/articles/unofficial-bash-strict-mode
+set -o nounset -o errexit -o pipefail
+
+script=`realpath $0`
+scriptdir=`dirname $script`
+scriptname=`basename $script`
+
+# The shared image store: what `docker run <image>` finds inside the box with
+# no pull and no network.
+#
+#   bin/images                    list what the box will find
+#   bin/images mysql:8.0 redis:7  add images to the store
+#   bin/images --remove mysql:8.0 take one out again
+#
+# It has to be filled from out here. An additionalimagestore is read-only to
+# containers/storage -- whatever its mount says -- so a pull inside the box
+# lands in the box's own graphroot and goes when the box does.
+#
+# Private registries need no extra work here: `podman login` on this host
+# writes an auth file this reads, and the box never sees the credential --
+# only the image, already pulled.
+
+data="$(dirname "$scriptdir")/data/images"
+store=(--root "$data" --storage-driver overlay)
+
+# Root would write a store the box cannot read: it reads it as you.
+test "$(id -u)" -ne 0 || { echo "error: run as the user who runs the box." >&2; exit 1; }
+
+# podman stamps the path it opened the store under into the store's database
+# and then refuses every other path -- which is what happens when the repo
+# moves, or when the box opens the same files as /var/lib/shared. Nothing an
+# image store needs is in there, so it goes after every run.
+trap 'rm -rf "$data/db.sql" "$data/libpod"' EXIT
+
+# mysql:8.0 -> docker.io/library/mysql:8.0, so the stored name is the name the
+# box looks for; short names resolve through a different registries.conf there.
+qualify () {
+    case "$1" in
+        */*) case "${1%%/*}" in *.*|*:*) echo "$1" ;; *) echo "docker.io/$1" ;; esac ;;
+        *)   echo "docker.io/library/$1" ;;
+    esac
+}
+
+remove=
+case "${1:-}" in
+    --remove|-r) remove=1; shift ;;
+    -*)          echo "usage: $scriptname [--remove] [image...]" >&2; exit 1 ;;
+esac
+
+if test $# -eq 0; then
+    test -d "$data" || { echo "no store yet at $data"; exit 0; }
+    podman "${store[@]}" images
+    echo
+    echo "$(du -sh "$data" | cut -f1) in $data"
+    exit 0
+fi
+
+for image in "$@"; do
+    ref=$(qualify "$image")
+    test -n "$remove" && podman "${store[@]}" rmi "$ref" || podman "${store[@]}" pull "$ref"
+done

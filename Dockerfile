@@ -38,16 +38,22 @@ ENV NPM_CONFIG_PREFIX=/home/ubuntu/.local \
     NODE_PATH=/home/ubuntu/.local/lib/node_modules \
     PATH=/home/ubuntu/bin:/home/ubuntu/.local/bin:${PATH} \
     PLAYWRIGHT_BROWSERS_PATH=/home/ubuntu/.cache/ms-playwright \
-    PUPPETEER_CACHE_DIR=/home/ubuntu/.cache/puppeteer \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome \
     CYPRESS_CACHE_FOLDER=/home/ubuntu/.cache/Cypress \
     HF_HOME=/home/ubuntu/.cache/huggingface \
     WHISPER_MODEL=${WHISPER_MODEL}
 
 # Keep distribution packages in one layer. UBUNTU_REFRESH is the only thing
 # that expires it, and bin/build advances the token once per UTC week.
+#
+# The cache mounts carry no sharing=locked. That lock serialises concurrent
+# builds of this file, which nobody runs -- and apt already serialises itself
+# with its own lock file *inside* the cached directory, so it was a second lock
+# around the same thing. The apt one outlives a killed build and has to be
+# cleared by hand; buildah's would silently block the next build instead.
 # Package archives and indexes stay in BuildKit caches, not the final image.
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt/lists \
     echo "Ubuntu package refresh: ${UBUNTU_REFRESH}" \
     && mv /etc/apt/apt.conf.d/docker-clean /tmp/docker-clean \
     && apt-get update \
@@ -66,7 +72,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         g++ \
         git \
         htop \
-        imagemagick \
         iproute2 \
         jq \
         libjpeg-turbo-progs \
@@ -169,8 +174,8 @@ USER root
 
 # Install the pinned browser framework's system dependencies before downloading
 # its pinned browser revisions.
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt/lists \
     mv /etc/apt/apt.conf.d/docker-clean /tmp/docker-clean \
     && playwright install-deps \
     && mv /tmp/docker-clean /etc/apt/apt.conf.d/docker-clean
@@ -182,10 +187,12 @@ RUN chown ubuntu:ubuntu /home/ubuntu
 
 USER ubuntu
 
-RUN playwright install chromium firefox webkit \
+# --no-shell leaves out chromium_headless_shell, a second 262 MB Chromium whose
+# only job is to be the headless one. Without it a headless launch uses the
+# full browser's own headless mode, which is what it did before the shell
+# existed: slightly slower to start, same browser, same results.
+RUN playwright install --no-shell chromium firefox webkit \
     && playwright install --list
-
-RUN puppeteer browsers install
 
 RUN cypress verify \
     && cypress info
@@ -197,8 +204,20 @@ RUN printf '\n%s\n%s\n' \
 
 # OpenCV comes from pip, not apt: rembg's dependencies force numpy 2 into
 # ~/.local, which shadows apt numpy and breaks noble's numpy-1-built
-# python3-opencv. The model download (~170 MB to ~/.u2net) happens at build time
-# so background removal works offline at runtime.
+# python3-opencv.
+#
+# new_session() downloads rembg's default model at build time so background
+# removal works offline at runtime -- and that default is now bria-rmbg, which
+# is 977 MB in ~/.rembg/models. It is the largest single file in the image and
+# most of this layer's 1.87 GB. Kept deliberately: it is the best cutout of the
+# twenty models rembg offers, and a smaller one (u2net 176 MB, silueta 44 MB)
+# would not be what a bare `rembg i` reaches for -- the CLI's own default is
+# bria-rmbg, so anything else would be downloaded again at runtime, into a
+# container that forgets it at exit.
+#
+# The [cli] extra also brings gradio and pandas, 121 MB for the `rembg s` web
+# server. Verified removable -- `rembg i` works without them -- but not worth a
+# rebuild of every layer below this one on its own.
 RUN --mount=type=cache,target=/home/ubuntu/.cache/pip,uid=1000,gid=1000 \
     opencv_version="$(curl -fsSL https://pypi.org/pypi/opencv-python-headless/json | jq -r .info.version)" \
     && rembg_version="$(curl -fsSL https://pypi.org/pypi/rembg/json | jq -r .info.version)" \
@@ -309,11 +328,14 @@ RUN oxipng_dir="oxipng-${OXIPNG_VERSION}-x86_64-unknown-linux-musl" \
     && oxipng --version \
     && echo "oxipng=${OXIPNG_VERSION}" >> /etc/ai-box/versions
 
-# Ubuntu 24.04 ships ImageMagick 6, which answers to `convert` and has no
-# `magick` command. The upstream AppImage puts ImageMagick 7 beside it: the
-# container has no FUSE, so the image is unpacked, and only `magick` reaches
-# PATH, leaving every ImageMagick 6 command in place. The probe conversion
-# proves the unpacked tree finds its own coders.
+# The only ImageMagick in the image, and it is 7. Ubuntu 24.04 ships 6, which
+# answers to `convert` and has no `magick` at all -- so having both meant two
+# ImageMagicks of different major versions, and which one you got depended on
+# which name you happened to type. The apt package is gone; the AppImage is
+# unpacked because the container has no FUSE, and the legacy names are
+# symlinked at it, since AppRun dispatches on argv[0]: `convert` still works
+# and is now the same ImageMagick as `magick`. The probe conversion proves the
+# unpacked tree finds its own coders.
 RUN magick_asset="ImageMagick-${IMAGEMAGICK_VERSION}-gcc-x86_64.AppImage" \
     && magick_digest="$(curl -fsSL "https://api.github.com/repos/ImageMagick/ImageMagick/releases/tags/${IMAGEMAGICK_VERSION}" | jq -r --arg name "${magick_asset}" '.assets[] | select(.name == $name) | .digest // empty')" \
     && test -n "${magick_digest}" \
@@ -325,7 +347,11 @@ RUN magick_asset="ImageMagick-${IMAGEMAGICK_VERSION}-gcc-x86_64.AppImage" \
     && mv /opt/squashfs-root /opt/imagemagick \
     && rm /tmp/magick.AppImage \
     && ln -s /opt/imagemagick/AppRun /usr/local/bin/magick \
+    && for name in convert identify mogrify composite montage compare; do \
+        ln -s /opt/imagemagick/AppRun "/usr/local/bin/${name}" || exit 1; \
+    done \
     && magick -version \
+    && convert -version \
     && magick -size 8x8 gradient:red-blue /tmp/probe.webp \
     && rm /tmp/probe.webp \
     && echo "imagemagick=${IMAGEMAGICK_VERSION}" >> /etc/ai-box/versions
@@ -334,8 +360,8 @@ RUN magick_asset="ImageMagick-${IMAGEMAGICK_VERSION}-gcc-x86_64.AppImage" \
 # unprivileged, so the environment needs neither --privileged nor a bound-in
 # socket, and nothing has to boot before the shell is usable. `podman-docker`
 # installs a real `docker` command, so tooling inside is unchanged.
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt/lists \
     apt-get update \
     && apt-get install -y --no-install-recommends \
         aardvark-dns \
@@ -381,8 +407,14 @@ RUN touch /etc/containers/nodocker
 # Chrome is the largest weekly-moving system package, so keep it near the end.
 # Its repository metadata supplies the exact version used to verify the
 # downloaded package.
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+#
+# It is also the only Chrome in the image. Puppeteer would otherwise download
+# its own -- another 652 MB of the same browser, a couple of patch releases
+# behind this one -- so PUPPETEER_EXECUTABLE_PATH points it here instead, and
+# the two checks below are where that substitution is proven: this is the first
+# layer where both Chrome and Puppeteer exist.
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt/lists \
     curl -fsSL https://dl.google.com/linux/chrome/deb/dists/stable/main/binary-amd64/Packages -o /tmp/Packages \
     && chrome_version="$(awk '/^Package: google-chrome-stable$/ { stable=1 } stable && /^Version:/ { print $2; exit }' /tmp/Packages)" \
     && chrome_filename="$(awk '/^Package: google-chrome-stable$/ { stable=1 } stable && /^Filename:/ { print $2; exit }' /tmp/Packages)" \
@@ -398,6 +430,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && test "$(dpkg-query -W -f='${Version}' google-chrome-stable)" = "${chrome_version}" \
     && rm /tmp/google-chrome.deb /tmp/Packages \
     && google-chrome --version \
+    && test -x "${PUPPETEER_EXECUTABLE_PATH}" \
+    && node -e "Promise.resolve(require('puppeteer').executablePath()).then(p => { console.log('puppeteer browser: ' + p); if (p !== process.env.PUPPETEER_EXECUTABLE_PATH) { process.exit(1) } })" \
     && echo "google-chrome=${chrome_version}" >> /etc/ai-box/versions \
     && mv /tmp/docker-clean /etc/apt/apt.conf.d/docker-clean
 
