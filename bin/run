@@ -177,6 +177,14 @@ fi
 #       enforces the real uid on every one of those paths.
 #   --security-opt seccomp=unconfined
 #       The inner runtime calls sethostname(2) in its own UTS namespace.
+#   --sysctl net.ipv4.ping_group_range=1000 1000
+#       ping without a raw socket. Podman's default for this is "0 0" -- only
+#       gid 0 may open an unprivileged ICMP socket -- and the box runs as
+#       ubuntu, so ping would fail on the socket instead. Both ends have to be
+#       a gid that maps inside the user namespace, which is what keep-id below
+#       guarantees for 1000; a wide range like 0-2147483647 is refused by the
+#       runtime. Narrower than --cap-add=NET_RAW, which would hand every
+#       process in the box raw packet access for the sake of one command.
 #
 # No --privileged and no docker socket: the box is rootless and unprivileged,
 # and nothing it runs can reach the host.
@@ -193,4 +201,5 @@ exec podman run --rm -i "${tty[@]}" \
     --security-opt label=disable \
     --security-opt unmask=ALL \
     --security-opt seccomp=unconfined \
+    --sysctl net.ipv4.ping_group_range="1000 1000" \
     ai-box "$@"

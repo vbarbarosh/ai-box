@@ -52,6 +52,15 @@ ENV NPM_CONFIG_PREFIX=/home/ubuntu/.local \
 # around the same thing. The apt one outlives a killed build and has to be
 # cleared by hand; buildah's would silently block the next build instead.
 # Package archives and indexes stay in BuildKit caches, not the final image.
+#
+# The tail re-stamps ping's file capability. Ubuntu ships /usr/bin/ping with
+# cap_net_raw=ep, and the effective bit is fatal here: podman drops NET_RAW
+# from its default bounding set, and the kernel answers execve with EPERM when
+# a binary asks for a permitted capability it cannot be given -- ping would not
+# start at all, not even to print --help. With the bit cleared ping starts,
+# raises the capability itself when the box is given NET_RAW, and otherwise
+# falls back to an unprivileged ICMP socket. bin/run opens that fallback with
+# --sysctl net.ipv4.ping_group_range.
 RUN --mount=type=cache,target=/var/cache/apt \
     --mount=type=cache,target=/var/lib/apt/lists \
     echo "Ubuntu package refresh: ${UBUNTU_REFRESH}" \
@@ -73,7 +82,9 @@ RUN --mount=type=cache,target=/var/cache/apt \
         git \
         htop \
         iproute2 \
+        iputils-ping \
         jq \
+        libcap2-bin \
         libjpeg-turbo-progs \
         make \
         man \
@@ -130,6 +141,8 @@ RUN --mount=type=cache,target=/var/cache/apt \
     && djpeg -version \
     && jpegtran -version \
     && exiftran -h > /dev/null \
+    && setcap cap_net_raw+p /usr/bin/ping \
+    && ping -V > /dev/null \
     && mv /tmp/docker-clean /etc/apt/apt.conf.d/docker-clean
 
 # What the build resolved, one name=version per line. Most components below
