@@ -65,6 +65,9 @@ bin/images         # list the shared image store; add: bin/images mysql:8.0
 bin/run            # open the box on the current directory
 bin/run claude     # ...and go straight into an agent
 bin/run make test  # ...or run one command and exit
+
+bin/usage          # rate-limit usage of the agents the box is logged in to,
+                   # Claude and GPT side by side; reads data/, starts nothing
 ```
 
 `bin/run` refuses to start from `$HOME`, from any directory that contains it,
