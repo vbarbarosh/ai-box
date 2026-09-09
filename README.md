@@ -150,7 +150,6 @@ processes are reaped and `podman stop` ends the box at once.
 
 | | |
 |---|---|
-| `services` | starts MySQL, Redis and MinIO as your own user, all bound to `127.0.0.1`. `services myapp` also creates a database and a bucket of that name. Data lives under `~/.local/var`, not `/var/lib` |
 | `hwdata` | CPU, memory and disks of the host underneath |
 | `diskusage` | one CSV row per real filesystem: inodes, bytes, percentages |
 | `diskusage-warn` | the same, filtered to whatever is over 85% |
@@ -163,6 +162,10 @@ table check is skipped. `g` with no argument wants an X clipboard the image does
 not have and says so. Scripts that only make sense on a real host -- `netdata`,
 `osdata`, `showmyip`, `showufw` -- live in `files/bin.host/` and are not copied
 into the image.
+
+There is no database server in the image. MySQL, Redis and MinIO run as
+containers, and `bin/images mysql:8.0 redis:7 minio/minio` on the host puts
+their images in the shared store so `docker run` inside needs no pull.
 
 ## Running containers inside it
 
@@ -277,7 +280,7 @@ The box also has full outbound network; the agent needs registries and APIs.
 
 Only six versions are pinned as build arguments (Node, Playwright, Puppeteer,
 Cypress, ImageMagick, oxipng). Everything else -- the Python and npm libraries,
-phpredis, Composer, MinIO, yt-dlp, Chrome, and the two agent CLIs -- asks its
+phpredis, Composer, yt-dlp, Chrome, and the two agent CLIs -- asks its
 upstream for the current release at build time, so two builds a week apart
 differ. Each layer records what it resolved in `/etc/ai-box/versions`, and
 `bin/missings --versions` prints it for the image you have. Every download is

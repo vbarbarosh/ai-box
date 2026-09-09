@@ -88,8 +88,6 @@ RUN --mount=type=cache,target=/var/cache/apt \
         libjpeg-turbo-progs \
         make \
         man \
-        mysql-client \
-        mysql-server \
         net-tools \
         optipng \
         parallel \
@@ -112,7 +110,6 @@ RUN --mount=type=cache,target=/var/cache/apt \
         pngquant \
         pv \
         python3-pip \
-        redis-server \
         ripgrep \
         silversearcher-ag \
         socat \
@@ -289,20 +286,6 @@ RUN composer_version="$(curl -fsSL https://getcomposer.org/versions | jq -r '.st
     && rm /tmp/composer-setup.php \
     && composer --version \
     && echo "composer=${composer_version}" >> /etc/ai-box/versions
-
-# The published checksum arrives before the binary it describes, so a release
-# that lands between the two downloads fails the check instead of passing it.
-RUN curl -fsSL https://dl.min.io/server/minio/release/linux-amd64/minio.sha256sum -o /tmp/minio.sha256sum \
-    && curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc.sha256sum -o /tmp/mc.sha256sum \
-    && curl -fsSL https://dl.min.io/server/minio/release/linux-amd64/minio -o /usr/local/bin/minio \
-    && curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc \
-    && echo "$(cut -d ' ' -f 1 /tmp/minio.sha256sum)  /usr/local/bin/minio" | sha256sum -c - \
-    && echo "$(cut -d ' ' -f 1 /tmp/mc.sha256sum)  /usr/local/bin/mc" | sha256sum -c - \
-    && rm /tmp/minio.sha256sum /tmp/mc.sha256sum \
-    && chmod 0755 /usr/local/bin/minio /usr/local/bin/mc \
-    && minio --version \
-    && mc --version \
-    && printf 'minio=%s\nmc=%s\n' "$(minio --version 2>/dev/null | awk '/version/ { print $3; exit }')" "$(mc --version 2>/dev/null | awk '/version/ { print $3; exit }')" >> /etc/ai-box/versions
 
 RUN curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS -o /tmp/SHA2-256SUMS \
     && curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \

@@ -10,7 +10,7 @@ scriptname=`basename $script`
 
 cd $scriptdir/..
 
-# Every binary the Dockerfile fetches outside apt -- Node, MinIO, yt-dlp,
+# Every binary the Dockerfile fetches outside apt -- Node, yt-dlp,
 # oxipng, ImageMagick, Chrome -- is the x86_64 build. On another architecture
 # the build would run the whole package layer and then fail at the first
 # checksum with a message that does not say why. Say why here instead.
