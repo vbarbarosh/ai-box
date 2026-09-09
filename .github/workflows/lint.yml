@@ -14,16 +14,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # bin/usage is node, not bash: it is checked with the other node script
+      # below, and handed to neither bash -n nor shellcheck, which rejects an
+      # unknown shebang outright.
       - name: bash -n
         run: |
-          for f in bin/* files/docker-entrypoint files/bin/* files/bin.host/*; do
+          for f in $(grep -l '^#!/bin/bash' bin/* files/docker-entrypoint files/bin/* files/bin.host/*); do
             bash -n "$f"
           done
 
       - name: shellcheck
         run: |
           sudo apt-get install -y --no-install-recommends shellcheck
-          shellcheck -S warning bin/* files/docker-entrypoint files/bin/* files/bin.host/*
+          shellcheck -S warning $(grep -l '^#!/bin/bash' bin/* files/docker-entrypoint files/bin/* files/bin.host/*)
 
       - name: hadolint
         uses: hadolint/hadolint-action@v3.1.0
@@ -32,6 +35,7 @@ jobs:
 
       - name: node --check, python compile
         run: |
+          node --check bin/usage
           node --check files/bin.ai/tts
           python3 -c "import ast, sys; ast.parse(open('files/bin.ai/transcribe').read())"
 
