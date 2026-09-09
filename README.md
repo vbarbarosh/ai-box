@@ -252,10 +252,11 @@ There used to be four Chromiums in the image and two ImageMagicks. Now:
   launch uses the full browser's headless mode rather than a second 262 MB
   build whose only job is to be the headless one.
 - **One ImageMagick, version 7.** The apt package (version 6) is gone. `magick`
-  and the legacy names — `convert`, `identify`, `mogrify`, `composite`,
-  `montage`, `compare` — are all symlinks to the same AppImage, which
-  dispatches on `argv[0]`. `convert` still works; it is no longer a different
-  ImageMagick from `magick`.
+  is the AppImage; the legacy names — `convert`, `identify`, `mogrify`,
+  `composite`, `montage`, `compare` — are a wrapper that runs `magick <name>`,
+  so each is the same ImageMagick as `magick`. `convert` still works, with
+  upstream's one-line deprecation warning on stderr. (The AppImage's own
+  launcher only tells the names apart under FUSE, which the box does not have.)
 
 That is 925 MB measured — 652 + 262 + 11 — and `bin/build`'s id-mapped copy is
 proportional to the image, so it comes off every build as well as off the disk.

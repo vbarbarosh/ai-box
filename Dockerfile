@@ -215,32 +215,16 @@ RUN printf '\n%s\n%s\n' \
         'export PATH="$HOME/bin:$HOME/.local/bin:$PATH"' \
         >> "$HOME/.bashrc"
 
-# OpenCV comes from pip, not apt: rembg's dependencies force numpy 2 into
-# ~/.local, which shadows apt numpy and breaks noble's numpy-1-built
-# python3-opencv.
-#
-# new_session() downloads rembg's default model at build time so background
-# removal works offline at runtime -- and that default is now bria-rmbg, which
-# is 977 MB in ~/.rembg/models. It is the largest single file in the image and
-# most of this layer's 1.87 GB. Kept deliberately: it is the best cutout of the
-# twenty models rembg offers, and a smaller one (u2net 176 MB, silueta 44 MB)
-# would not be what a bare `rembg i` reaches for -- the CLI's own default is
-# bria-rmbg, so anything else would be downloaded again at runtime, into a
-# container that forgets it at exit.
-#
-# The [cli] extra also brings gradio and pandas, 121 MB for the `rembg s` web
-# server. Verified removable -- `rembg i` works without them -- but not worth a
-# rebuild of every layer below this one on its own.
+# OpenCV comes from pip, not apt. noble's python3-opencv is built against
+# numpy 1, and the numpy 2 that faster-whisper's layer puts into ~/.local
+# would shadow the apt one and break it; the wheel carries a numpy it agrees
+# with. Headless because nothing here opens a window.
 RUN --mount=type=cache,target=/home/ubuntu/.cache/pip,uid=1000,gid=1000 \
     opencv_version="$(curl -fsSL https://pypi.org/pypi/opencv-python-headless/json | jq -r .info.version)" \
-    && rembg_version="$(curl -fsSL https://pypi.org/pypi/rembg/json | jq -r .info.version)" \
     && python3 -m pip install --user --break-system-packages \
         "opencv-python-headless==${opencv_version}" \
-        "rembg[cpu,cli]==${rembg_version}" \
-    && python3 -c "from rembg import new_session; new_session()" \
     && python3 -c "import cv2, numpy; print('OpenCV', cv2.__version__, '/ numpy', numpy.__version__)" \
-    && rembg --help > /dev/null \
-    && printf 'opencv-python-headless=%s\nrembg=%s\n' "${opencv_version}" "${rembg_version}" >> /etc/ai-box/versions
+    && echo "opencv-python-headless=${opencv_version}" >> /etc/ai-box/versions
 
 # QR, OCR, and speech-synthesis libraries for ad-hoc node scripts (NODE_PATH
 # points here). msedge-tts speaks screencast narration through the Edge voices;
@@ -345,10 +329,15 @@ RUN oxipng_dir="oxipng-${OXIPNG_VERSION}-x86_64-unknown-linux-musl" \
 # answers to `convert` and has no `magick` at all -- so having both meant two
 # ImageMagicks of different major versions, and which one you got depended on
 # which name you happened to type. The apt package is gone; the AppImage is
-# unpacked because the container has no FUSE, and the legacy names are
-# symlinked at it, since AppRun dispatches on argv[0]: `convert` still works
-# and is now the same ImageMagick as `magick`. The probe conversion proves the
-# unpacked tree finds its own coders.
+# unpacked because the container has no FUSE.
+#
+# AppRun dispatches on the symlink name only under the FUSE runtime, which
+# sets APPIMAGE and ARGV0; unpacked, every name ran the bare `magick`, so
+# `identify x.png` had no output file and failed, and `montage`, `composite`
+# and `compare` quietly did something else. The legacy names are now a
+# one-line wrapper that runs `magick <name>`, the ImageMagick 7 spelling of
+# each tool. The probes prove the unpacked tree finds its own coders and that
+# `identify` reaches identify.
 RUN magick_asset="ImageMagick-${IMAGEMAGICK_VERSION}-gcc-x86_64.AppImage" \
     && magick_digest="$(curl -fsSL "https://api.github.com/repos/ImageMagick/ImageMagick/releases/tags/${IMAGEMAGICK_VERSION}" | jq -r --arg name "${magick_asset}" '.assets[] | select(.name == $name) | .digest // empty')" \
     && test -n "${magick_digest}" \
@@ -360,12 +349,15 @@ RUN magick_asset="ImageMagick-${IMAGEMAGICK_VERSION}-gcc-x86_64.AppImage" \
     && mv /opt/squashfs-root /opt/imagemagick \
     && rm /tmp/magick.AppImage \
     && ln -s /opt/imagemagick/AppRun /usr/local/bin/magick \
+    && printf '#!/bin/sh\nexec /opt/imagemagick/AppRun "$(basename "$0")" "$@"\n' > /opt/imagemagick/legacy \
+    && chmod 0755 /opt/imagemagick/legacy \
     && for name in convert identify mogrify composite montage compare; do \
-        ln -s /opt/imagemagick/AppRun "/usr/local/bin/${name}" || exit 1; \
+        ln -s /opt/imagemagick/legacy "/usr/local/bin/${name}" || exit 1; \
     done \
     && magick -version \
     && convert -version \
     && magick -size 8x8 gradient:red-blue /tmp/probe.webp \
+    && identify /tmp/probe.webp \
     && rm /tmp/probe.webp \
     && echo "imagemagick=${IMAGEMAGICK_VERSION}" >> /etc/ai-box/versions
 
