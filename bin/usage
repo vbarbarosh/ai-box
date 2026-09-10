@@ -351,7 +351,16 @@ function usage_blocks_from_gpt_usage(usage)
 {
     const out = [];
 
-    const all_models = weekly_window_from_rate_limit(usage.rate_limit);
+    const current_session = usage.rate_limit?.primary_window;
+    if (current_session) {
+        out.push(usage_meter_block_from_values(
+            'Current session',
+            current_session.used_percent,
+            current_session.reset_at,
+        ));
+    }
+
+    const all_models = usage.rate_limit?.secondary_window;
     if (all_models) {
         out.push(usage_meter_block_from_values(
             'All models',
