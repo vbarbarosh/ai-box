@@ -115,6 +115,7 @@ RUN --mount=type=cache,target=/var/cache/apt \
         socat \
         tesseract-ocr \
         tesseract-ocr-ron \
+        tmux \
         tree \
         unzip \
         vim \
@@ -138,6 +139,7 @@ RUN --mount=type=cache,target=/var/cache/apt \
     && djpeg -version \
     && jpegtran -version \
     && exiftran -h > /dev/null \
+    && tmux -V \
     && setcap cap_net_raw+p /usr/bin/ping \
     && ping -V > /dev/null \
     && mv /tmp/docker-clean /etc/apt/apt.conf.d/docker-clean
