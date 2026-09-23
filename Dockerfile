@@ -67,6 +67,7 @@ RUN --mount=type=cache,target=/var/cache/apt \
     && mv /etc/apt/apt.conf.d/docker-clean /tmp/docker-clean \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
+        bc \
         ca-certificates \
         curl \
         ethtool \
@@ -140,6 +141,7 @@ RUN --mount=type=cache,target=/var/cache/apt \
     && jpegtran -version \
     && exiftran -h > /dev/null \
     && tmux -V \
+    && bc --version > /dev/null \
     && setcap cap_net_raw+p /usr/bin/ping \
     && ping -V > /dev/null \
     && mv /tmp/docker-clean /etc/apt/apt.conf.d/docker-clean
