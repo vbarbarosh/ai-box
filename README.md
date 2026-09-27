@@ -65,6 +65,8 @@ bin/images         # list the shared image store; add: bin/images mysql:8.0
 bin/run            # open the box on the current directory
 bin/run claude     # ...and go straight into an agent
 bin/run make test  # ...or run one command and exit
+NOTES=~/path/to/notes/20260927_005300 bin/run claude
+                   # ...with a Visual Notes note at /notes
 
 bin/usage          # rate-limit usage of the agents the box is logged in to,
                    # Claude and GPT side by side; reads data/, starts nothing
@@ -83,6 +85,7 @@ symlink does not get around it.
 | `$PWD/.git` | **ro** | mounted over the writable workspace, when present |
 | `$PWD/.env`, `$PWD/.env.*` | hidden | each replaced with `/dev/null`, so secrets never enter the box. `AI_BOX_MASK="a.pem b.json"` hides more |
 | `~/repos` → `/repos` | ro | |
+| `$NOTES` → `/notes` | rw | a Visual Notes note, when `NOTES` is set |
 | `data/claude{,.json}` → `~/.claude{,.json}` | rw | so the agent keeps its login and history |
 | `data/codex{,.json}` → `~/.codex{,.json}` | rw | same |
 | `data/images` → `/var/lib/shared` | rw | the shared image store, when it exists |

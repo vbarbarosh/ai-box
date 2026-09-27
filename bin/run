@@ -89,6 +89,29 @@ if test -e "$HOME/repos"; then
     opts+=(-v "$HOME/repos:/repos:ro")
 fi
 
+# A Visual Notes note, read-write, so the agent answers in it: NOTES names the
+# note's folder and the box sees it as /notes.
+#   NOTES=~/w/kb/app-visual-notes/data/notes/20260927_005300 bin/run claude
+# Set but wrong is an error, not a box without the note. The same guard as the
+# workspace: it is writable, so never /, $HOME or anything containing it.
+if test -n "${NOTES:-}"; then
+    if ! test -d "$NOTES"; then
+        echo "error: NOTES is not a directory: $NOTES" >&2
+        exit 1
+    fi
+    notes=$(realpath "$NOTES")
+    case "$home/" in
+        "$notes"/*)
+            echo "error: NOTES ($notes) contains your home directory ($home)" >&2
+            exit 1 ;;
+    esac
+    if test "$notes" = /; then
+        echo "error: refusing to mount / as NOTES" >&2
+        exit 1
+    fi
+    opts+=(-v "$notes:/notes")
+fi
+
 opts+=(-v "$data/codex.json:/home/ubuntu/.codex.json")
 opts+=(-v "$data/claude.json:/home/ubuntu/.claude.json")
 opts+=(-v "$data/codex:/home/ubuntu/.codex")
