@@ -89,6 +89,7 @@ RUN --mount=type=cache,target=/var/cache/apt \
         libjpeg-turbo-progs \
         make \
         man \
+        moreutils \
         net-tools \
         optipng \
         parallel \
@@ -142,6 +143,8 @@ RUN --mount=type=cache,target=/var/cache/apt \
     && exiftran -h > /dev/null \
     && tmux -V \
     && bc --version > /dev/null \
+    && echo | ts > /dev/null \
+    && parallel --version | grep -q "GNU parallel" \
     && setcap cap_net_raw+p /usr/bin/ping \
     && ping -V > /dev/null \
     && mv /tmp/docker-clean /etc/apt/apt.conf.d/docker-clean
