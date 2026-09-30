@@ -258,8 +258,12 @@ There used to be four Chromiums in the image and two ImageMagicks. Now:
   same browser a couple of patch releases behind. `puppeteer.launch()` needs no
   argument; the build asserts `executablePath()` resolves there.
 - **One Chromium for Playwright**, installed with `--no-shell`. A headless
-  launch uses the full browser's headless mode rather than a second 262 MB
-  build whose only job is to be the headless one.
+  launch asks for the full browser's headless mode with `channel: 'chromium'`
+  rather than a second 262 MB build whose only job is to be the headless one;
+  a plain `chromium.launch()` looks for that build and fails.
+- **One headless shell, for a project with its own Playwright.** A suite that
+  runs the `@playwright/test` its lockfile pins and launches it plainly needs
+  the shell of that release (`PLAYWRIGHT_SHELL_VERSION`), 262 MB.
 - **One ImageMagick, version 7.** The apt package (version 6) is gone. `magick`
   is the AppImage; the legacy names — `convert`, `identify`, `mogrify`,
   `composite`, `montage`, `compare` — are a wrapper that runs `magick <name>`,
@@ -284,8 +288,8 @@ The box also has full outbound network; the agent needs registries and APIs.
 
 ### What the image was built with
 
-Only six versions are pinned as build arguments (Node, Playwright, Puppeteer,
-Cypress, ImageMagick, oxipng). Everything else -- the Python and npm libraries,
+Only seven versions are pinned as build arguments (Node, Playwright, the
+Playwright headless shell, Puppeteer, Cypress, ImageMagick, oxipng). Everything else -- the Python and npm libraries,
 phpredis, Composer, yt-dlp, Chrome, and the two agent CLIs -- asks its
 upstream for the current release at build time, so two builds a week apart
 differ. Each layer records what it resolved in `/etc/ai-box/versions`, and

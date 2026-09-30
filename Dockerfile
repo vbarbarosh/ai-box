@@ -205,9 +205,9 @@ RUN chown ubuntu:ubuntu /home/ubuntu
 USER ubuntu
 
 # --no-shell leaves out chromium_headless_shell, a second 262 MB Chromium whose
-# only job is to be the headless one. Without it a headless launch uses the
-# full browser's own headless mode, which is what it did before the shell
-# existed: slightly slower to start, same browser, same results.
+# only job is to be the headless one. Without it a headless launch has to ask
+# for the full browser's own headless mode with `channel: 'chromium'`; a plain
+# `chromium.launch()` looks for the shell and fails.
 RUN playwright install --no-shell chromium firefox webkit \
     && playwright install --list
 
@@ -456,6 +456,17 @@ RUN chown ubuntu:ubuntu /home/ubuntu \
     && install -d -o ubuntu -g ubuntu -m 0755 /home/ubuntu/.codex /home/ubuntu/.claude
 
 USER ubuntu
+
+# A project that pins an older Playwright and launches it plainly needs that
+# release's headless shell. The screenshot is a real launch: a version listing
+# passes without the binary.
+ARG PLAYWRIGHT_SHELL_VERSION=1.61.1
+
+RUN --mount=type=cache,target=/home/ubuntu/.npm,uid=1000,gid=1000 \
+    npx --yes "playwright@${PLAYWRIGHT_SHELL_VERSION}" install --only-shell chromium \
+    && npx --yes "playwright@${PLAYWRIGHT_SHELL_VERSION}" screenshot --browser chromium about:blank /tmp/probe.png \
+    && rm /tmp/probe.png \
+    && echo "playwright-shell=${PLAYWRIGHT_SHELL_VERSION}" >> /etc/ai-box/versions
 
 # =============================================================================
 # Every-build layers
