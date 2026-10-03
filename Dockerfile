@@ -254,10 +254,12 @@ RUN --mount=type=cache,target=/home/ubuntu/.npm,uid=1000,gid=1000 \
 # without torch, PyAV reads .mp4/.webm/.mkv directly, and the model (~464 MB
 # for small) is fetched at build time so transcription works offline. Build
 # with --build-arg WHISPER_MODEL=base for a smaller, less accurate one.
+# av is held below 19: faster-whisper 1.2.1 passes av.open(metadata_errors=),
+# which av 19 removed.
 RUN --mount=type=cache,target=/home/ubuntu/.cache/pip,uid=1000,gid=1000 \
     faster_whisper_version="$(curl -fsSL https://pypi.org/pypi/faster-whisper/json | jq -r .info.version)" \
     && python3 -m pip install --user --break-system-packages \
-        "faster-whisper==${faster_whisper_version}" \
+        "faster-whisper==${faster_whisper_version}" "av<19" \
     && ffmpeg -nostdin -v error -f lavfi -i sine=frequency=440:sample_rate=16000 -t 1 -y /tmp/probe.wav \
     && python3 -c "from faster_whisper import WhisperModel; model = WhisperModel('${WHISPER_MODEL}', device='cpu', compute_type='int8'); segments, info = model.transcribe('/tmp/probe.wav'); list(segments); print('faster-whisper ${WHISPER_MODEL}', info.language)" \
     && rm /tmp/probe.wav \
