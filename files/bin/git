@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# git, except that in a GIT=commit box (bin/run mounts /run/git) git commit,
+# push and pull say which command does it instead of failing on a read-only
+# .git or a missing key. Everything else goes to git as it is.
+
+if test -d /run/git; then
+    skip=
+    for a in "$@"; do
+        if test -n "$skip"; then
+            skip=
+            continue
+        fi
+        case "$a" in
+            -C|-c) skip=1 ;;
+            -*) ;;
+            commit|push|pull)
+                echo "git $a: .git is read-only in this box; the host does it: run '$a' (see '$a --help')" >&2
+                exit 1 ;;
+            *) break ;;
+        esac
+    done
+fi
+exec /usr/bin/git "$@"

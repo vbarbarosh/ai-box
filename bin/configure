@@ -76,8 +76,8 @@ echo "packages"
 
 # passt provides pasta, the userspace network helper podman prefers; slirp4netns
 # is the older fallback and is small enough to keep as a spare. catatonit is
-# the init bin/run puts at PID 1 of the box. socat carries `push` and `pull`
-# out of a GIT=rw box to the host.
+# the init bin/run puts at PID 1 of the box. socat carries `commit`, `push`
+# and `pull` out of a GIT=commit box to the host.
 want=(podman uidmap crun passt slirp4netns catatonit socat)
 need=()
 for p in "${want[@]}"; do

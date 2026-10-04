@@ -9,23 +9,18 @@ scriptdir=`dirname $script`
 scriptname=`basename $script`
 
 # Pushes the branch the box was started on, to origin. The box holds no key:
-# the host runs the push, through the socket bin/run mounts when started with
-# GIT=rw. It takes no arguments, and the host would read none.
-#
-# bin/run also sets GIT_SSH_COMMAND=push, so a `git push`, `git pull` or
-# `git fetch` in the box lands here with arguments and says what to do instead.
+# the host runs the push, through the socket bin/run mounts with GIT=commit.
+# It takes no arguments, and the host would read none.
 
 sock=/run/git/push.sock
 
 if test $# -gt 0; then
-    echo "$scriptname: git cannot reach the remote from this box: there is no key in it." >&2
-    echo "$scriptname: run 'push' or 'pull' with no arguments; the host talks to origin for the branch the box was started on." >&2
+    echo "$scriptname: takes no arguments; it pushes $(cat /run/git/branch 2>/dev/null || echo 'the branch the box was started on') to origin" >&2
     exit 1
 fi
 
 if ! test -S "$sock"; then
-    echo "$scriptname: not available in this box; on the host, start it with GIT=rw bin/run" >&2
-    echo "$scriptname: from a branch, in a repository with an origin" >&2
+    echo "$scriptname: not available in this box; on the host, start it with GIT=commit bin/run" >&2
     exit 1
 fi
 
@@ -37,7 +32,7 @@ while IFS= read -r line || test -n "$line"; do
         "push: exit "*) status=${line#"push: exit "} ;;
         *) printf '%s\n' "$line" ;;
     esac
-done < <(socat -u "UNIX-CONNECT:$sock" STDOUT)
+done < <(socat -t 3600 -u "UNIX-CONNECT:$sock" STDOUT)
 if test -z "$status"; then
     echo "$scriptname: the host did not finish; the push may or may not have happened" >&2
     exit 1

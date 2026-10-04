@@ -67,9 +67,9 @@ bin/run claude     # ...and go straight into an agent
 bin/run make test  # ...or run one command and exit
 NOTES=~/path/to/notes/20260927_005300 bin/run claude
                    # ...with a Visual Notes note at /notes
-GIT=rw bin/run claude
-                   # ...letting the agent commit, and push and pull the
-                   # branch you are on; see Commit, push and pull
+GIT=commit bin/run claude
+                   # ...letting the agent commit, push and pull the branch
+                   # you are on, through the host; see Commit, push and pull
 
 bin/usage          # rate-limit usage of the agents the box is logged in to,
                    # Claude and GPT side by side; reads data/, starts nothing
@@ -85,14 +85,14 @@ symlink does not get around it.
 | path | mode | |
 |---|---|---|
 | `$PWD` → `/app` | rw | the project; the only writable host path |
-| `$PWD/.git` | **ro** | mounted over the writable workspace, when present; with `GIT=rw`, writable except `hooks/` and `config` |
+| `$PWD/.git` | **ro** | mounted over the writable workspace, when present; always |
 | `$PWD/.env`, `$PWD/.env.*` | hidden | each replaced with `/dev/null`, so secrets never enter the box. `AI_BOX_MASK="a.pem b.json"` hides more |
 | `~/repos` → `/repos` | ro | |
 | `$NOTES` → `/notes` | rw | a Visual Notes note, when `NOTES` is set |
 | `data/claude{,.json}` → `~/.claude{,.json}` | rw | so the agent keeps its login and history |
 | `data/codex{,.json}` → `~/.codex{,.json}` | rw | same |
 | `data/images` → `/var/lib/shared` | rw | the shared image store, when it exists |
-| sockets → `/run/git` | ro | with `GIT=rw`: `push` and `pull` ask the host to push and fetch |
+| sockets → `/run/git` | ro | with `GIT=commit`: `commit`, `push` and `pull` ask the host |
 
 Agent state is the box's own, kept out of your home dotfiles: the box logs in,
 keeps its history and rewrites its config without touching the `~/.claude` or
@@ -110,41 +110,44 @@ creates an empty directory in your home.
 ### Commit, push and pull
 
 ```bash
-GIT=rw bin/run claude
+GIT=commit bin/run claude
 ```
 
-`.git` is then writable, so the agent commits, branches, rebases and resets.
-Three things in it stay read-only, because the host's git runs them the next
-time you type `git`: `hooks/`, `config` (`core.hooksPath`, `core.fsmonitor`,
-`core.sshCommand`, aliases, filters), and the same in each submodule under
-`.git/modules`. `git config` and `git remote add` fail in the box for that
-reason. Commits are authored as your `user.name` and `user.email` on the host.
+`.git` stays read-only. A box that could write it could rewrite history, move
+or delete any branch and drop your stashes, and an agent did: it rewrote
+commits you had already pushed. So the host does the git work, and the box
+asks. `commit`, `push` and `pull` inside the box each connect to a relay
+`bin/run` starts beside it, and the host runs a fixed script in the workspace,
+for the branch checked out when the box started:
 
-The box holds no key, so the host talks to origin for it. `push` and `pull`
-inside the box each ask a relay `bin/run` starts beside it, and the host runs
-one fixed command with your own ssh setup:
+| in the box | on the host |
+|---|---|
+| `commit <file.patch>` | the patch applied on `HEAD` and committed; a `git format-patch` email brings its message, a plain diff takes `-m <message>` |
+| `commit -m <message> <path>...` | the same, with the patch made in the box from those files |
+| `push` | `git push --no-follow-tags origin refs/heads/<branch>:refs/heads/<branch>` |
+| `pull` | `git fetch` of `<branch>` into `origin/<branch>`, then `git merge` |
 
-```
-push   git push --no-follow-tags origin refs/heads/<branch>:refs/heads/<branch>
-pull   git fetch --no-tags --no-recurse-submodules origin +refs/heads/<branch>:refs/remotes/origin/<branch>
-```
+One patch, one commit. The host applies it to a scratch index on `HEAD`, so
+neither your staging nor the working tree is read or changed: the files
+already hold the change, and the patch is what gets recorded. Commits are
+yours: your `user.name`, your hooks. A patch that does not apply to `HEAD` as
+it is now is refused, and so is one touching a file the box sees masked
+(`.env`, `AI_BOX_MASK`). From paths, the agent names every file, new, changed
+or deleted; no globs, no `-a`. No force, no other branch, no tags, no amend,
+rebase or reset: there is no command for them. If you switch the branch on the
+host, `commit` and `pull` refuse until you switch back.
 
-`<branch>` is the one checked out when the box started. No force, no other
-branch, no tags; neither command takes arguments, and the host reads nothing
-from the box. A rejected push (the remote moved on) comes back to the agent as
-git printed it; `pull` and a second `push` follow. `git push` and `git pull` in
-the box fail and point at `push` and `pull`. The relays end with the box.
+`pull` merges on the host: a fast-forward or a merge commit goes through. A
+conflict does not. `pull` undoes the merge, lists the files, tells the agent
+to stop and ask you, and exits 2. A rejected push (the remote moved on) comes
+back to the agent as git printed it; `pull` and a second `push` follow.
 
-`pull` merges `origin/<branch>` in the box, after the host's fetch: a
-fast-forward or a merge commit goes through. A conflict does not. `pull` undoes
-the merge, lists the files, tells the agent to stop and ask you, and exits 2.
-It also refuses when the box is on another branch than the one it was started
-on.
+`git commit`, `git push` and `git pull` in the box say which command to run
+instead. The relays end with the box.
 
 What it needs:
 
-- a branch checked out and an `origin` in `.git/config`; otherwise `bin/run`
-  says push and pull are off and the box still commits;
+- a branch checked out on the host; `bin/run` stops on a detached HEAD;
 - `socat` on the host (`bin/configure` installs it);
 - a push and a fetch that work from your terminal with no passphrase typed:
   the relays have no terminal to ask on. ssh-agent covers it.
@@ -208,8 +211,10 @@ processes are reaped and `podman stop` ends the box at once.
 | `now` | timestamp, for pasting into notes |
 | `g` | recursive `ag` search: `g pattern` |
 | `templ` | the skeleton these scripts start from: `templ > new && vi new` |
-| `push` | push the branch the box was started on, through the host; a `GIT=rw` box only |
-| `pull` | fetch that branch through the host and merge it; stops on a conflict; a `GIT=rw` box only |
+| `commit` | one patch, one commit, through the host: `commit <file.patch>` or `commit -m <message> <path>...`; a `GIT=commit` box only |
+| `push` | push the branch the box was started on, through the host; a `GIT=commit` box only |
+| `pull` | fetch that branch and merge it, on the host; stops on a conflict; a `GIT=commit` box only |
+| `git` | git itself, except that `git commit`, `push` and `pull` point at the three above in a `GIT=commit` box |
 
 `hwdata` reports what it can: `parted` is not in the image, so the partition
 table check is skipped. `g` with no argument wants an X clipboard the image does

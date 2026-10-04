@@ -80,10 +80,10 @@ else
     bad optional "catatonit" "bin/configure  (apt: catatonit)"
 fi
 
-# The relays `push` and `pull` inside a GIT=rw box talk to; without it the box
-# still commits, and bin/run says push and pull are off.
+# The relays `commit`, `push` and `pull` inside a GIT=commit box talk to;
+# without it bin/run refuses GIT=commit.
 if command -v socat >/dev/null 2>&1; then
-    ok "socat" "push and pull from a GIT=rw box"
+    ok "socat" "commit, push, pull: GIT=commit"
 else
     bad optional "socat" "bin/configure  (apt: socat)"
 fi

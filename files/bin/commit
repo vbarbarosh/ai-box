@@ -1,0 +1,117 @@
+#!/bin/bash
+
+# http://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
+# http://redsymbol.net/articles/unofficial-bash-strict-mode
+set -o nounset -o errexit -o pipefail
+
+script=`realpath $0`
+scriptdir=`dirname $script`
+scriptname=`basename $script`
+
+# One patch, one commit, on the branch the box was started on. .git is
+# read-only in the box: the host applies the patch on HEAD and commits it, as
+# its own user, with its hooks, through the socket bin/run mounts with
+# GIT=commit. The working tree is not touched: the files already hold the
+# change, the patch is what gets recorded.
+
+sock=/run/git/commit.sock
+
+usage () {
+    echo "usage: $scriptname <file.patch>                 a git format-patch email: its message is used" >&2
+    echo "       $scriptname -m <message> <file.patch>    a plain diff; - reads it from stdin" >&2
+    echo "       $scriptname -m <message> <path>...       the patch is made here from these files" >&2
+    echo "       -m again adds a paragraph. Name every file: new, changed or deleted; no globs." >&2
+}
+
+message=
+args=()
+while test $# -gt 0; do
+    case "$1" in
+        -m)
+            test $# -ge 2 || { usage; exit 1; }
+            message="${message:+$message$'\n\n'}$2"
+            shift 2 ;;
+        -h|--help) usage; exit 0 ;;
+        --) shift; args+=("$@"); break ;;
+        -) args+=("$1"); shift ;;
+        -*) echo "$scriptname: unknown option $1" >&2; usage; exit 1 ;;
+        *) args+=("$1"); shift ;;
+    esac
+done
+if test "${#args[@]}" -eq 0; then
+    usage
+    exit 1
+fi
+
+if ! test -S "$sock"; then
+    echo "$scriptname: not available in this box; on the host, start it with GIT=commit bin/run" >&2
+    exit 1
+fi
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+one=${args[0]}
+if test "${#args[@]}" -eq 1 && { test "$one" = - || case "$one" in *.patch|*.diff) true ;; *) false ;; esac; }; then
+    if test "$one" = -; then
+        cat > "$tmp/patch"
+    else
+        cp -- "$one" "$tmp/patch"
+    fi
+    # A format-patch email carries its own message; git mailinfo splits it off.
+    if test -z "$message" && grep -q '^Subject: ' "$tmp/patch"; then
+        git mailinfo "$tmp/msg" "$tmp/diff" < "$tmp/patch" > "$tmp/info"
+        message=$(sed -n 's/^Subject: //p' "$tmp/info")
+        if test -s "$tmp/msg"; then
+            message="$message"$'\n\n'"$(cat "$tmp/msg")"
+        fi
+        mv "$tmp/diff" "$tmp/patch"
+    fi
+else
+    # Paths, from wherever the agent is, made relative to the top of /app.
+    cd /app
+    for p in "${args[@]}"; do
+        r=$(realpath -m -s --relative-to=/app -- "$OLDPWD/$p")
+        case "$p" in /*) r=$(realpath -m -s --relative-to=/app -- "$p") ;; esac
+        case "$r" in
+            ..|../*) echo "$scriptname: $p is outside /app" >&2; exit 1 ;;
+        esac
+        if test -c "$r"; then
+            # bin/run masks secrets with /dev/null; the box never sees them.
+            echo "$scriptname: $p is hidden from the box; the author commits it" >&2
+            exit 1
+        elif git cat-file -e "HEAD:$r" 2>/dev/null; then
+            git diff --binary --no-ext-diff --src-prefix=a/ --dst-prefix=b/ HEAD -- "$r" >> "$tmp/patch"
+        elif test -e "$r"; then
+            # Untracked: --no-index exits 1 when the files differ, which is the point.
+            git diff --binary --no-ext-diff --src-prefix=a/ --dst-prefix=b/ --no-index /dev/null "$r" >> "$tmp/patch" || test $? = 1
+        else
+            echo "$scriptname: $p: no such file, and not in HEAD" >&2
+            exit 1
+        fi
+    done
+fi
+
+if test -z "$message"; then
+    echo "$scriptname: no message: give -m, or a format-patch email" >&2
+    exit 1
+fi
+if ! test -s "$tmp/patch"; then
+    echo "$scriptname: nothing to commit: the patch is empty" >&2
+    exit 1
+fi
+
+# The host ends with a line of its own carrying git's exit status. No such
+# line means the relay went away: a failure.
+status=
+while IFS= read -r line || test -n "$line"; do
+    case "$line" in
+        "commit: exit "*) status=${line#"commit: exit "} ;;
+        *) printf '%s\n' "$line" ;;
+    esac
+done < <({ printf '%s\0' "$message"; cat "$tmp/patch"; } | socat -t 3600 - "UNIX-CONNECT:$sock")
+if test -z "$status"; then
+    echo "$scriptname: the host did not finish; check git log before trying again" >&2
+    exit 1
+fi
+exit "$status"
