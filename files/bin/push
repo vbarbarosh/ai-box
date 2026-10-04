@@ -1,0 +1,45 @@
+#!/bin/bash
+
+# http://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
+# http://redsymbol.net/articles/unofficial-bash-strict-mode
+set -o nounset -o errexit -o pipefail
+
+script=`realpath $0`
+scriptdir=`dirname $script`
+scriptname=`basename $script`
+
+# Pushes the branch the box was started on, to origin. The box holds no key:
+# the host runs the push, through the socket bin/run mounts when started with
+# GIT=rw. It takes no arguments, and the host would read none.
+#
+# bin/run also sets GIT_SSH_COMMAND=push, so a `git push`, `git pull` or
+# `git fetch` in the box lands here with arguments and says what to do instead.
+
+sock=/run/git/push.sock
+
+if test $# -gt 0; then
+    echo "$scriptname: git cannot reach the remote from this box: there is no key in it." >&2
+    echo "$scriptname: run 'push' or 'pull' with no arguments; the host talks to origin for the branch the box was started on." >&2
+    exit 1
+fi
+
+if ! test -S "$sock"; then
+    echo "$scriptname: not available in this box; on the host, start it with GIT=rw bin/run" >&2
+    echo "$scriptname: from a branch, in a repository with an origin" >&2
+    exit 1
+fi
+
+# The host ends with a line of its own carrying git's exit status. No such
+# line means the relay went away mid-push: a failure.
+status=
+while IFS= read -r line || test -n "$line"; do
+    case "$line" in
+        "push: exit "*) status=${line#"push: exit "} ;;
+        *) printf '%s\n' "$line" ;;
+    esac
+done < <(socat -u "UNIX-CONNECT:$sock" STDOUT)
+if test -z "$status"; then
+    echo "$scriptname: the host did not finish; the push may or may not have happened" >&2
+    exit 1
+fi
+exit "$status"

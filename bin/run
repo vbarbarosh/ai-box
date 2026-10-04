@@ -62,9 +62,121 @@ touch "$data/claude.json"
 
 opts=()
 
-# Read-only, mounted over the read-write workspace.
-if test -e "$workspace/.git"; then
-    opts+=(-v "$workspace/.git:/app/.git:ro")
+# Read-only, mounted over the read-write workspace -- unless GIT=rw, which lets
+# the agent commit:
+#   GIT=rw bin/run claude
+# Then .git stays writable except what the host's git runs: hooks/ and config
+# (core.hooksPath, core.fsmonitor, core.sshCommand, aliases, filters), and the
+# same in every submodule under .git/modules. Written from inside, any of them
+# would run on the host the next time you type git.
+case "${GIT:-}" in
+    "") git_rw= ;;
+    rw) git_rw=1 ;;
+    *)
+        echo "error: GIT=$GIT; the only value is rw" >&2
+        exit 1 ;;
+esac
+if test -z "$git_rw"; then
+    if test -e "$workspace/.git"; then
+        opts+=(-v "$workspace/.git:/app/.git:ro")
+    fi
+else
+    if ! test -d "$workspace/.git"; then
+        echo "error: GIT=rw, but $workspace/.git is not a directory" >&2
+        echo "       (a linked worktree or a submodule checkout points outside" >&2
+        echo "       the workspace, where the box cannot follow)" >&2
+        exit 1
+    fi
+    # .git and each submodule's git dir: a directory with HEAD and objects/,
+    # so a branch or a reflog named config or hooks is left alone.
+    gitdirs=("$workspace/.git")
+    while IFS= read -r -d '' head; do
+        if test -d "${head%/HEAD}/objects"; then
+            gitdirs+=("${head%/HEAD}")
+        fi
+    done < <(find "$workspace/.git/modules" -name HEAD -type f -print0 2>/dev/null)
+    for d in "${gitdirs[@]}"; do
+        # A read-only mount needs a mountpoint; git init makes hooks/ anyway.
+        mkdir -p "$d/hooks"
+        opts+=(-v "$d/hooks:/app/${d#"$workspace"/}/hooks:ro")
+        if test -f "$d/config"; then
+            opts+=(-v "$d/config:/app/${d#"$workspace"/}/config:ro")
+        fi
+    done
+    opts+=(-e GIT=rw)
+    # The box has no ~/.gitconfig and cannot write .git/config: commits are
+    # authored as you are on the host.
+    for names in "user.name GIT_AUTHOR_NAME GIT_COMMITTER_NAME" "user.email GIT_AUTHOR_EMAIL GIT_COMMITTER_EMAIL"; do
+        read -r key author committer <<<"$names"
+        value=$(git -C "$workspace" config "$key" || true)
+        if test -n "$value"; then
+            opts+=(-e "$author=$value" -e "$committer=$value")
+        fi
+    done
+    echo "ai-box: .git is writable; hooks/ and config stay read-only" >&2
+fi
+
+# Push and pull from a GIT=rw box, without a key in it: the box asks, the host
+# talks to origin. `push` and `pull` inside the box connect to a socket each,
+# and the host runs one fixed command with your own ssh setup, for the branch
+# checked out when the box started:
+#   push   git push --no-follow-tags origin refs/heads/<branch>:refs/heads/<branch>
+#   pull   git fetch --no-tags --no-recurse-submodules origin
+#              +refs/heads/<branch>:refs/remotes/origin/<branch>
+# No force, no other branch, no tags; the box sends nothing the host reads.
+# pull then merges in the box, and stops at a conflict. The relays end with the
+# box.
+relays=()
+if test -n "$git_rw"; then
+    branch=$(git -C "$workspace" symbolic-ref --quiet --short HEAD || true)
+    if test -z "$branch"; then
+        echo "ai-box: push and pull are off: HEAD is detached" >&2
+    elif ! git -C "$workspace" config --local remote.origin.url >/dev/null; then
+        # Only from .git/config, which the box cannot write; git would also
+        # take a remote from .git/remotes/origin, which it can.
+        echo "ai-box: push and pull are off: no origin in .git/config" >&2
+    elif ! command -v socat >/dev/null 2>&1; then
+        echo "ai-box: push and pull are off: no socat on the host (bin/configure)" >&2
+    else
+        # The scripts stay outside the box; only box/ goes in, for the sockets
+        # and the branch name.
+        relaydir=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/ai-box-git.XXXXXX")
+        mkdir "$relaydir/box"
+        trap 'kill "${relays[@]}" 2>/dev/null; rm -rf "$relaydir"' EXIT
+        echo "$branch" > "$relaydir/box/branch"
+        # One git command in the workspace, served on box/<name>.sock: each
+        # connection runs it once and gets its output, then a line with git's
+        # exit status.
+        relay () {
+            local name=$1
+            shift
+            {
+                echo '#!/bin/bash'
+                echo 'export GIT_TERMINAL_PROMPT=0'
+                printf 'git -C %q' "$workspace"
+                printf ' %q' "$@"
+                printf ' </dev/null 2>&1\n'
+                printf 'echo "%s: exit $?"\n' "$name"
+            } > "$relaydir/$name"
+            chmod 700 "$relaydir/$name"
+            # setsid: no terminal to prompt on, so a locked key fails the push
+            # instead of asking for a passphrase over the box's own screen.
+            setsid socat -U "UNIX-LISTEN:$relaydir/box/$name.sock,fork,mode=600" "EXEC:$relaydir/$name" \
+                </dev/null >/dev/null 2>&1 &
+            relays+=($!)
+            for _ in $(seq 20); do
+                test -S "$relaydir/box/$name.sock" && break
+                sleep 0.05
+            done
+        }
+        relay push push --no-follow-tags origin "refs/heads/$branch:refs/heads/$branch"
+        relay fetch fetch --no-tags --no-recurse-submodules origin "+refs/heads/$branch:refs/remotes/origin/$branch"
+        opts+=(-v "$relaydir/box:/run/git:ro")
+        # git push or pull in the box points the agent at push and pull instead
+        # of failing on a missing ssh.
+        opts+=(-e "GIT_SSH_COMMAND=push")
+        echo "ai-box: push and pull work on $branch at origin, through the host" >&2
+    fi
 fi
 
 # Secrets never enter the box: every .env and .env.* in the workspace is
@@ -210,14 +322,15 @@ fi
 #       process in the box raw packet access for the sake of one command.
 #
 # No --privileged and no docker socket: the box is rootless and unprivileged,
-# and nothing it runs can reach the host.
+# and nothing it runs can reach the host -- save the GIT=rw push and pull
+# relays, each running one fixed command there.
 
-exec podman run --rm -i "${tty[@]}" \
+box=(podman run --rm -i "${tty[@]}" \
     --pull=never \
     --shm-size=2g \
     "${opts[@]}" \
     -v "$workspace:/app" \
-    --userns=keep-id:uid=1000,gid=1000 \
+    "--userns=keep-id:uid=1000,gid=1000" \
     --user 0 \
     --device /dev/fuse \
     --device /dev/net/tun \
@@ -225,4 +338,12 @@ exec podman run --rm -i "${tty[@]}" \
     --security-opt unmask=ALL \
     --security-opt seccomp=unconfined \
     --sysctl net.ipv4.ping_group_range="1000 1000" \
-    ai-box "$@"
+    ai-box "$@")
+
+# The relays have to be stopped when the box ends, so bin/run waits for it;
+# without them there is nothing to wait for.
+if test "${#relays[@]}" -gt 0; then
+    "${box[@]}"
+else
+    exec "${box[@]}"
+fi

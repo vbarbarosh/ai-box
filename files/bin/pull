@@ -1,0 +1,69 @@
+#!/bin/bash
+
+# http://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
+# http://redsymbol.net/articles/unofficial-bash-strict-mode
+set -o nounset -o errexit -o pipefail
+
+script=`realpath $0`
+scriptdir=`dirname $script`
+scriptname=`basename $script`
+
+# Brings in what origin has on the branch the box was started on, and merges
+# it. The box holds no key: the host fetches, through the socket bin/run mounts
+# when started with GIT=rw, and the merge runs here. A conflict undoes the
+# merge and stops: the author decides how to resolve it, not the agent.
+
+sock=/run/git/fetch.sock
+
+if test $# -gt 0; then
+    echo "$scriptname: takes no arguments; it pulls the branch the box was started on" >&2
+    exit 1
+fi
+
+if ! test -S "$sock"; then
+    echo "$scriptname: not available in this box; on the host, start it with GIT=rw bin/run" >&2
+    echo "$scriptname: from a branch, in a repository with an origin" >&2
+    exit 1
+fi
+
+branch=$(cat /run/git/branch)
+current=$(git symbolic-ref --quiet --short HEAD || true)
+if test "$current" != "$branch"; then
+    echo "$scriptname: the box was started on $branch, and HEAD is on ${current:-a detached commit}" >&2
+    echo "$scriptname: git switch $branch, then pull" >&2
+    exit 1
+fi
+
+# The host ends with a line of its own carrying git's exit status. No such
+# line means the relay went away mid-fetch: a failure.
+status=
+while IFS= read -r line || test -n "$line"; do
+    case "$line" in
+        "fetch: exit "*) status=${line#"fetch: exit "} ;;
+        *) printf '%s\n' "$line" ;;
+    esac
+done < <(socat -u "UNIX-CONNECT:$sock" STDOUT)
+if test -z "$status"; then
+    echo "$scriptname: the host did not finish the fetch; nothing was merged" >&2
+    exit 1
+fi
+if test "$status" != 0; then
+    exit "$status"
+fi
+
+if git merge --no-edit "origin/$branch"; then
+    exit 0
+fi
+
+# git merge refuses before it starts (local changes in the way) or stops
+# halfway with conflicts; only the second leaves MERGE_HEAD.
+if ! git rev-parse --quiet --verify MERGE_HEAD >/dev/null; then
+    exit 1
+fi
+conflicts=$(git diff --name-only --diff-filter=U | sed 's/^/  /')
+git merge --abort
+echo >&2
+echo "$scriptname: origin/$branch conflicts with $branch in:" >&2
+echo "$conflicts" >&2
+echo "$scriptname: the merge is undone, the tree is as it was. Stop here and ask the author how to resolve it." >&2
+exit 2

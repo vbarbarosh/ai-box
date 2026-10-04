@@ -67,6 +67,9 @@ bin/run claude     # ...and go straight into an agent
 bin/run make test  # ...or run one command and exit
 NOTES=~/path/to/notes/20260927_005300 bin/run claude
                    # ...with a Visual Notes note at /notes
+GIT=rw bin/run claude
+                   # ...letting the agent commit, and push and pull the
+                   # branch you are on; see Commit, push and pull
 
 bin/usage          # rate-limit usage of the agents the box is logged in to,
                    # Claude and GPT side by side; reads data/, starts nothing
@@ -82,13 +85,14 @@ symlink does not get around it.
 | path | mode | |
 |---|---|---|
 | `$PWD` → `/app` | rw | the project; the only writable host path |
-| `$PWD/.git` | **ro** | mounted over the writable workspace, when present |
+| `$PWD/.git` | **ro** | mounted over the writable workspace, when present; with `GIT=rw`, writable except `hooks/` and `config` |
 | `$PWD/.env`, `$PWD/.env.*` | hidden | each replaced with `/dev/null`, so secrets never enter the box. `AI_BOX_MASK="a.pem b.json"` hides more |
 | `~/repos` → `/repos` | ro | |
 | `$NOTES` → `/notes` | rw | a Visual Notes note, when `NOTES` is set |
 | `data/claude{,.json}` → `~/.claude{,.json}` | rw | so the agent keeps its login and history |
 | `data/codex{,.json}` → `~/.codex{,.json}` | rw | same |
 | `data/images` → `/var/lib/shared` | rw | the shared image store, when it exists |
+| sockets → `/run/git` | ro | with `GIT=rw`: `push` and `pull` ask the host to push and fetch |
 
 Agent state is the box's own, kept out of your home dotfiles: the box logs in,
 keeps its history and rewrites its config without touching the `~/.claude` or
@@ -102,6 +106,48 @@ see [Where the box keeps its state](#where-the-box-keeps-its-state).
 `--shm-size=2g` is set for Chrome/Playwright. `$PWD/.git`, `$PWD/.env` and
 `~/repos` are mounted only when they exist, so a bind mount never silently
 creates an empty directory in your home.
+
+### Commit, push and pull
+
+```bash
+GIT=rw bin/run claude
+```
+
+`.git` is then writable, so the agent commits, branches, rebases and resets.
+Three things in it stay read-only, because the host's git runs them the next
+time you type `git`: `hooks/`, `config` (`core.hooksPath`, `core.fsmonitor`,
+`core.sshCommand`, aliases, filters), and the same in each submodule under
+`.git/modules`. `git config` and `git remote add` fail in the box for that
+reason. Commits are authored as your `user.name` and `user.email` on the host.
+
+The box holds no key, so the host talks to origin for it. `push` and `pull`
+inside the box each ask a relay `bin/run` starts beside it, and the host runs
+one fixed command with your own ssh setup:
+
+```
+push   git push --no-follow-tags origin refs/heads/<branch>:refs/heads/<branch>
+pull   git fetch --no-tags --no-recurse-submodules origin +refs/heads/<branch>:refs/remotes/origin/<branch>
+```
+
+`<branch>` is the one checked out when the box started. No force, no other
+branch, no tags; neither command takes arguments, and the host reads nothing
+from the box. A rejected push (the remote moved on) comes back to the agent as
+git printed it; `pull` and a second `push` follow. `git push` and `git pull` in
+the box fail and point at `push` and `pull`. The relays end with the box.
+
+`pull` merges `origin/<branch>` in the box, after the host's fetch: a
+fast-forward or a merge commit goes through. A conflict does not. `pull` undoes
+the merge, lists the files, tells the agent to stop and ask you, and exits 2.
+It also refuses when the box is on another branch than the one it was started
+on.
+
+What it needs:
+
+- a branch checked out and an `origin` in `.git/config`; otherwise `bin/run`
+  says push and pull are off and the box still commits;
+- `socat` on the host (`bin/configure` installs it);
+- a push and a fetch that work from your terminal with no passphrase typed:
+  the relays have no terminal to ask on. ssh-agent covers it.
 
 ### Where the box keeps its state
 
@@ -162,6 +208,8 @@ processes are reaped and `podman stop` ends the box at once.
 | `now` | timestamp, for pasting into notes |
 | `g` | recursive `ag` search: `g pattern` |
 | `templ` | the skeleton these scripts start from: `templ > new && vi new` |
+| `push` | push the branch the box was started on, through the host; a `GIT=rw` box only |
+| `pull` | fetch that branch through the host and merge it; stops on a conflict; a `GIT=rw` box only |
 
 `hwdata` reports what it can: `parted` is not in the image, so the partition
 table check is skipped. `g` with no argument wants an X clipboard the image does

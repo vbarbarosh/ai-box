@@ -67,7 +67,7 @@ fi
 
 if ! command -v apt-get >/dev/null 2>&1; then
     echo "error: this script only knows apt. Install the equivalents of:" >&2
-    echo "  podman uidmap crun passt slirp4netns catatonit" >&2
+    echo "  podman uidmap crun passt slirp4netns catatonit socat" >&2
     exit 1
 fi
 
@@ -76,8 +76,9 @@ echo "packages"
 
 # passt provides pasta, the userspace network helper podman prefers; slirp4netns
 # is the older fallback and is small enough to keep as a spare. catatonit is
-# the init bin/run puts at PID 1 of the box.
-want=(podman uidmap crun passt slirp4netns catatonit)
+# the init bin/run puts at PID 1 of the box. socat carries `push` and `pull`
+# out of a GIT=rw box to the host.
+want=(podman uidmap crun passt slirp4netns catatonit socat)
 need=()
 for p in "${want[@]}"; do
     if dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q '^install ok installed$'; then
