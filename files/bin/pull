@@ -21,7 +21,7 @@ if test $# -gt 0; then
 fi
 
 if ! test -S "$sock"; then
-    echo "$scriptname: not available in this box; on the host, start it with GIT=commit bin/run" >&2
+    echo "$scriptname: you have no commit access in this box" >&2
     exit 1
 fi
 
