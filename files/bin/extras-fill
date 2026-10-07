@@ -30,7 +30,7 @@ export CYPRESS_CACHE_FOLDER=$root/cypress
 export HF_HOME=$root/huggingface
 
 # Playwright deletes every revision no installed Playwright refers to, and the
-# headless shell's Playwright is a throwaway npx copy: without this the next
+# headless shell's Playwright is a throwaway copy: without this the next
 # install would delete the shell, and a box on the previous image would lose
 # its browsers. Old revisions are removed below, by age.
 export PLAYWRIGHT_SKIP_BROWSER_GC=1
@@ -97,13 +97,17 @@ playwright screenshot --browser webkit about:blank $tempdir/probe.png
 versions+=("playwright=$playwright_version")
 
 # A project that pins an older Playwright and launches it plainly needs that
-# release's headless shell; the screenshot is a real launch of it.
+# release's headless shell; the screenshot is a real launch of it. That
+# Playwright goes to $tempdir, not npx: run from npx's cache it prints a
+# warning box that says to `npm install` first.
 shell_version=$PLAYWRIGHT_SHELL_VERSION
-npx --yes playwright@$shell_version install --only-shell chromium
+npm install --prefix $tempdir/shell --no-save --no-audit --no-fund --loglevel=error playwright@$shell_version
+shell_playwright=$tempdir/shell/node_modules/.bin/playwright
+$shell_playwright install --only-shell chromium
 while read -r path; do
     wanted+=($path)
-done < <(npx --yes playwright@$shell_version install --dry-run --only-shell chromium | playwright_locations)
-npx --yes playwright@$shell_version screenshot --browser chromium about:blank $tempdir/probe.png
+done < <($shell_playwright install --dry-run --only-shell chromium | playwright_locations)
+$shell_playwright screenshot --browser chromium about:blank $tempdir/probe.png
 versions+=("playwright-shell=$shell_version")
 
 # Cypress: its Electron, for the cypress package in the image.
