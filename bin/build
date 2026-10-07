@@ -205,6 +205,8 @@ esac
 # new Chrome. Its own week stamp, written when the fill succeeds, so a failed
 # fill takes the new Chrome on the next build. Same mapping as bin/run, so the
 # files land owned by you, and the id-mapped copy above is the one this reuses.
+# With IMAGE_ID it skips its probes when the image, agents and Chrome are the
+# last fill's.
 mkdir -p data/extras
 refresh=
 if test "$(cat data/extras/refresh 2>/dev/null)" != "$ubuntu_refresh"; then
@@ -217,6 +219,7 @@ podman run --rm \
     --user 1000:1000 \
     -e HOME=/home/ubuntu \
     -e REFRESH=$refresh \
+    -e IMAGE_ID=$(podman image inspect --format '{{.Id}}' ai-box) \
     -v "$PWD/data/extras:/opt/extras" \
     --entrypoint /home/ubuntu/bin/extras-fill \
     ai-box

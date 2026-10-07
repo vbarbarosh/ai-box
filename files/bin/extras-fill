@@ -85,6 +85,38 @@ set_current npm $npm_name
 wanted+=(npm/$npm_name)
 versions+=("claude-code=$claude_version" "codex=$codex_version")
 
+# Chrome's version for this fill: the one it has, or with REFRESH the current
+# stable package; it is fetched and unpacked further down.
+chrome_version=
+if test "${REFRESH:-}" != 1 && test -d $root/chrome/current; then
+    chrome_version=`readlink $root/chrome/current`
+fi
+if test -z "$chrome_version"; then
+    curl -fsSL https://dl.google.com/linux/chrome/deb/dists/stable/main/binary-amd64/Packages -o $tempdir/Packages
+    chrome_version=`awk '/^Package: google-chrome-stable$/ { stable=1 } stable && /^Version:/ { print $2; exit }' $tempdir/Packages`
+    chrome_filename=`awk '/^Package: google-chrome-stable$/ { stable=1 } stable && /^Filename:/ { print $2; exit }' $tempdir/Packages`
+    chrome_sha256=`awk '/^Package: google-chrome-stable$/ { stable=1 } stable && /^SHA256:/ { print $2; exit }' $tempdir/Packages`
+    test -n "$chrome_version"
+    test -n "$chrome_filename"
+    test -n "$chrome_sha256"
+fi
+
+# A repeat build has nothing to add: the same image (IMAGE_ID, from bin/build),
+# the same agents, the same Chrome. The probes below would only repeat the last
+# fill's, half a minute each build, so check that its entries are still there.
+stamp="image=${IMAGE_ID:-} npm=$npm_name chrome=$chrome_version"
+if test -n "${IMAGE_ID:-}" && test "$(head -1 $root/.filled 2>/dev/null)" = "$stamp"; then
+    filled=1
+    while read -r path; do
+        test -e "$root/$path" || filled=
+    done < <(tail -n +2 $root/.filled)
+    if test -n "$filled"; then
+        echo "$scriptname: nothing new since the last fill; probes skipped"
+        cat $root/versions
+        exit 0
+    fi
+fi
+
 # Playwright: one revision per browser for the Playwright in the image.
 playwright_version=`node -p "require('playwright/package.json').version"`
 playwright install --no-shell chromium firefox webkit
@@ -130,19 +162,6 @@ versions+=("whisper_model=$WHISPER_MODEL")
 # from the same metadata. Only /opt/google/chrome is kept: the package's cron
 # job and apt source are of no use in a box. chrome-sandbox loses its setuid
 # bit: Chrome sandboxes itself with user namespaces in the box.
-chrome_version=
-if test "${REFRESH:-}" != 1 && test -d $root/chrome/current; then
-    chrome_version=`readlink $root/chrome/current`
-fi
-if test -z "$chrome_version"; then
-    curl -fsSL https://dl.google.com/linux/chrome/deb/dists/stable/main/binary-amd64/Packages -o $tempdir/Packages
-    chrome_version=`awk '/^Package: google-chrome-stable$/ { stable=1 } stable && /^Version:/ { print $2; exit }' $tempdir/Packages`
-    chrome_filename=`awk '/^Package: google-chrome-stable$/ { stable=1 } stable && /^Filename:/ { print $2; exit }' $tempdir/Packages`
-    chrome_sha256=`awk '/^Package: google-chrome-stable$/ { stable=1 } stable && /^SHA256:/ { print $2; exit }' $tempdir/Packages`
-    test -n "$chrome_version"
-    test -n "$chrome_filename"
-    test -n "$chrome_sha256"
-fi
 if ! test -d $root/chrome/$chrome_version; then
     curl -fsSL https://dl.google.com/linux/chrome/deb/$chrome_filename -o $tempdir/google-chrome.deb
     echo "$chrome_sha256  $tempdir/google-chrome.deb" | sha256sum -c -
@@ -171,6 +190,11 @@ node -e "Promise.resolve(require('puppeteer').executablePath()).then(p => { cons
 
 printf '%s\n' "${versions[@]}" > $root/.versions.tmp
 mv $root/.versions.tmp $root/versions
+{
+    echo "$stamp"
+    printf '%s\n' "${wanted[@]}"
+} > $root/.filled.tmp
+mv $root/.filled.tmp $root/.filled
 
 # When each entry was last wanted, in seconds: "<epoch> <path>" a line. An
 # entry found on disk and not listed yet is listed as of now, so it is

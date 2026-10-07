@@ -46,6 +46,8 @@ the folder mounted writable and one script in it, `extras-fill`:
 | CLIs | `npm install` into a new `npm/<claude>-<codex>/` | daily, when either releases |
 
 Each step looks for its version first and does nothing when it is there.
+When the image, the CLIs and Chrome are all the last fill's (`.filled`),
+the fill skips its probes too and prints the versions.
 So the daily build is: no image rebuild, a CLI install into a new folder,
 `current` moved. The weekly build is the image, then the same fill, which then
 also fetches Chrome.
