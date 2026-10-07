@@ -55,10 +55,11 @@ data="$(dirname "$scriptdir")/data"
 # on their usual dotted names inside the box.
 #
 # Bind-mounting a path that does not exist makes a directory of it, and the
-# agents want files. Create them empty rather than let that happen.
+# agents want files. Create them as `{}` rather than let that happen: an
+# empty one is not JSON, and claude reports it corrupted ("Unexpected EOF").
 mkdir -p "$data/codex" "$data/claude"
-touch "$data/codex.json"
-touch "$data/claude.json"
+test -s "$data/codex.json" || echo '{}' > "$data/codex.json"
+test -s "$data/claude.json" || echo '{}' > "$data/claude.json"
 
 # The browsers, the whisper model, Chrome and both agent CLIs are not in the
 # image: bin/build fills data/extras with them (notes/extras.md), the agents
