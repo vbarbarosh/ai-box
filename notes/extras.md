@@ -68,8 +68,8 @@ it started with.
   writes go to a throwaway layer that ends with the box, as writes into the
   image do today. Tested with the nested podman; not yet on the host.
 
-No folder, or no `versions` file in it: `bin/run` stops with
-"data/extras is empty: run bin/build".
+No agent CLIs in it: `bin/run` stops with "run bin/build". No `versions`
+file (the last fill failed after the CLIs): it starts with a warning.
 
 ## How the agent knows
 

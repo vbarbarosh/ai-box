@@ -422,10 +422,15 @@ RUN ln -sf /usr/share/zoneinfo/${TZ} /etc/localtime \
 # run time instead. Hand the home directory back here, or the runtime user
 # opens a shell in a home it cannot write to.
 #
-# ~/.codex and ~/.claude are made in the same breath, as root and owned by
-# ubuntu: they are the mountpoints bin/run binds the host's agent state onto.
-RUN chown ubuntu:ubuntu /home/ubuntu \
-    && install -d -o ubuntu -g ubuntu -m 0755 /home/ubuntu/.codex /home/ubuntu/.claude
+# ~/.cache and ~/.npm too, made here if missing: buildah 1.33 leaves them
+# behind as root after the pip and npm cache mounts, podman 5.7's buildah
+# leaves nothing. Chrome and Chromium die at launch without a writable
+# ~/.cache and ~/.config.
+#
+# ~/.codex and ~/.claude are made in the same breath, owned by ubuntu: they
+# are the mountpoints bin/run binds the host's agent state onto.
+RUN install -d -m 0755 /home/ubuntu/.cache /home/ubuntu/.npm /home/ubuntu/.codex /home/ubuntu/.claude \
+    && chown ubuntu:ubuntu /home/ubuntu /home/ubuntu/.cache /home/ubuntu/.npm /home/ubuntu/.codex /home/ubuntu/.claude
 
 # A project that pins an older Playwright and launches it plainly needs that
 # release's headless shell; extras-fill installs it beside the current
@@ -447,8 +452,9 @@ RUN mkdir -p /var/lib/shared/overlay-images \
           /var/lib/shared/overlay-containers/containers.lock
 
 # COPY creates a missing parent directory owned by root, so ~/.config/containers
-# is made here, before the user config below lands in it.
-RUN install -d -o ubuntu -g ubuntu -m 0755 /home/ubuntu/.config/containers
+# is made here, before the user config below lands in it. `install -d` gives
+# only the last directory the owner, so ~/.config is named on its own.
+RUN install -d -o ubuntu -g ubuntu -m 0755 /home/ubuntu/.config /home/ubuntu/.config/containers
 
 # Also set here, not only in the entrypoint: a `podman exec` into a running
 # environment does not pass through the entrypoint, and an inner engine with no

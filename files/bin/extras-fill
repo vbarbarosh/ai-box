@@ -65,6 +65,26 @@ set_current () {
     mv -T $root/$1/.current.tmp $root/$1/current
 }
 
+# Claude Code and Codex first: bin/run starts a box as soon as they are here,
+# so a browser that fails below never takes the agents with it. Installed
+# together under one name, so the pair a box starts with never changes under it.
+claude_version=`npm view @anthropic-ai/claude-code version`
+codex_version=`npm view @openai/codex version`
+test -n "$claude_version"
+test -n "$codex_version"
+npm_name=$claude_version-$codex_version
+if ! test -d $root/npm/$npm_name; then
+    NPM_CONFIG_PREFIX=$root/npm/.$npm_name.tmp npm install --global --no-audit --no-fund \
+        "@anthropic-ai/claude-code@$claude_version" \
+        "@openai/codex@$codex_version"
+    mv $root/npm/.$npm_name.tmp $root/npm/$npm_name
+    $root/npm/$npm_name/bin/claude --version
+    $root/npm/$npm_name/bin/codex --version
+fi
+set_current npm $npm_name
+wanted+=(npm/$npm_name)
+versions+=("claude-code=$claude_version" "codex=$codex_version")
+
 # Playwright: one revision per browser for the Playwright in the image.
 playwright_version=`node -p "require('playwright/package.json').version"`
 playwright install --no-shell chromium firefox webkit
@@ -144,25 +164,6 @@ if test $root = /opt/extras; then
     google-chrome --version
 fi
 node -e "Promise.resolve(require('puppeteer').executablePath()).then(p => { console.log('puppeteer browser: ' + p); if (p !== process.env.PUPPETEER_EXECUTABLE_PATH) { process.exit(1) } })"
-
-# Claude Code and Codex, installed together under one name, so the pair a box
-# starts with never changes under it.
-claude_version=`npm view @anthropic-ai/claude-code version`
-codex_version=`npm view @openai/codex version`
-test -n "$claude_version"
-test -n "$codex_version"
-npm_name=$claude_version-$codex_version
-if ! test -d $root/npm/$npm_name; then
-    NPM_CONFIG_PREFIX=$root/npm/.$npm_name.tmp npm install --global --no-audit --no-fund \
-        "@anthropic-ai/claude-code@$claude_version" \
-        "@openai/codex@$codex_version"
-    mv $root/npm/.$npm_name.tmp $root/npm/$npm_name
-    $root/npm/$npm_name/bin/claude --version
-    $root/npm/$npm_name/bin/codex --version
-fi
-set_current npm $npm_name
-wanted+=(npm/$npm_name)
-versions+=("claude-code=$claude_version" "codex=$codex_version")
 
 printf '%s\n' "${versions[@]}" > $root/.versions.tmp
 mv $root/.versions.tmp $root/versions

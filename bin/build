@@ -10,6 +10,23 @@ scriptname=`basename $script`
 
 cd $scriptdir/..
 
+# Everything a build prints -- podman build, the warming, extras-fill -- also
+# goes to data/logs/build-<Chisinau time>.log, so a failure can be read back
+# whole after the terminal is gone.
+mkdir -p data/logs
+log=$PWD/data/logs/build-`TZ=Europe/Chisinau date +%Y%m%d_%H%M%S`.log
+exec > >(tee -a $log) 2>&1
+echo "$scriptname: started `TZ=Europe/Chisinau date '+%F %T %Z'`; whole output in $log"
+on_exit () {
+    status=$?
+    if test $status = 0; then
+        echo "$scriptname: done; log $log"
+    else
+        echo "$scriptname: FAILED (exit $status); whole output in $log"
+    fi
+}
+trap on_exit EXIT
+
 # Every binary the Dockerfile fetches outside apt -- Node, yt-dlp,
 # oxipng, ImageMagick, Chrome -- is the x86_64 build. On another architecture
 # the build would run the whole package layer and then fail at the first

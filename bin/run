@@ -61,13 +61,19 @@ touch "$data/codex.json"
 touch "$data/claude.json"
 
 # The browsers, the whisper model, Chrome and both agent CLIs are not in the
-# image: bin/build fills data/extras with them (notes/extras.md). A box
-# without them has no agent to start, so say so here rather than inside.
-if ! test -f "$data/extras/versions"; then
-    echo "error: $data/extras is empty -- the browsers, the whisper model and" >&2
-    echo "       the agent CLIs live there; fill it with:" >&2
+# image: bin/build fills data/extras with them (notes/extras.md), the agents
+# first. Without the agents there is nothing to start; without the rest the
+# box starts, and says so once, since a broken browser must not keep you from
+# your agents.
+if ! test -x "$data/extras/npm/current/bin/claude"; then
+    echo "error: no agent CLIs in $data/extras -- fill it with:" >&2
     echo "         $scriptdir/build" >&2
+    echo "       (its whole output goes to $data/logs/)" >&2
     exit 1
+fi
+if ! test -f "$data/extras/versions"; then
+    echo "warning: the last fill of $data/extras did not finish: browsers, Chrome" >&2
+    echo "         or the whisper model may be missing; see $data/logs/" >&2
 fi
 
 opts=()

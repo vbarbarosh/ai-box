@@ -203,15 +203,17 @@ data/extras/
 ```
 
 - **`bin/build` fills it**, at the end, by running `extras-fill` in the new
-  image. What is there at the right version costs nothing: a daily build
-  installs a new Claude or Codex beside the old ones and moves `npm/current`,
-  and the image itself, unchanged, is not copied again. The first build of a
-  week also takes a new Chrome. Each entry is checked (a real launch, a real
+  image, and writes its whole output to `data/logs/build-<time>.log`. What
+  is there at the right version costs nothing: a daily build installs a new
+  Claude or Codex beside the old ones and moves `npm/current`, and the image
+  itself, unchanged, is not copied again. The first build of a week also
+  takes a new Chrome. Each entry is checked (a real launch, a real
   transcription, `--version`) before it is renamed into place.
 - **`bin/run` mounts it** at `/opt/extras` as an overlay (`:O`): the host's
   folder is never written by a box, and what a box writes there -- a
-  project's own `npx playwright install` -- ends with it. With no
-  `data/extras/versions`, `bin/run` stops and says to run `bin/build`.
+  project's own `npx playwright install` -- ends with it. Without the agent
+  CLIs `bin/run` stops and says to run `bin/build`; without the rest it starts
+  with a warning, since the fill installs the agents first.
 - **Inside, nothing moved.** `claude` and `codex` are on the `PATH`;
   `PLAYWRIGHT_BROWSERS_PATH`, `CYPRESS_CACHE_FOLDER` and `HF_HOME` point into
   `/opt/extras`; `/opt/google/chrome` and `/usr/bin/google-chrome` lead there.
