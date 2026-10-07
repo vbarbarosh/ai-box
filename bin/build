@@ -222,3 +222,32 @@ podman run --rm \
     ai-box
 
 echo "$ubuntu_refresh" > data/extras/refresh
+
+# Each build leaves the previous ai-box untagged, and podman keeps them all.
+# Remove them now that the new one is built and filled; podman removes an
+# image's build steps with it when no other image shares them. A running box
+# keeps its image: podman refuses to remove that one, and the next build
+# removes it.
+before=$(free_bytes)
+removed=
+for id in $(podman images --quiet --no-trunc --filter dangling=true); do
+    case "$(podman image inspect --format '{{.NamesHistory}}' $id 2>/dev/null)" in
+        *localhost/ai-box:*) ;;
+        *) continue ;;
+    esac
+    short=${id#sha256:}
+    short=${short:0:12}
+    if out=$(podman rmi $id 2>&1); then
+        echo "removed the old image $short"
+        removed=1
+    elif [[ "$out" == *"in use by a container"* ]]; then
+        echo "kept the old image $short: a running box uses it; the next build removes it"
+    else
+        echo "warning: could not remove the old image $short: $out" >&2
+    fi
+done
+if test -n "$removed"; then
+    freed=$(( $(free_bytes) - before ))
+    test "$freed" -ge 0 2>/dev/null || freed=0
+    echo "old images removed, $(human $freed) freed"
+fi
