@@ -60,6 +60,16 @@ mkdir -p "$data/codex" "$data/claude"
 touch "$data/codex.json"
 touch "$data/claude.json"
 
+# The browsers, the whisper model, Chrome and both agent CLIs are not in the
+# image: bin/build fills data/extras with them (notes/extras.md). A box
+# without them has no agent to start, so say so here rather than inside.
+if ! test -f "$data/extras/versions"; then
+    echo "error: $data/extras is empty -- the browsers, the whisper model and" >&2
+    echo "       the agent CLIs live there; fill it with:" >&2
+    echo "         $scriptdir/build" >&2
+    exit 1
+fi
+
 opts=()
 
 # Read-only, mounted over the read-write workspace, always: a box with write
@@ -281,6 +291,13 @@ opts+=(-v "$data/codex.json:/home/ubuntu/.codex.json")
 opts+=(-v "$data/claude.json:/home/ubuntu/.claude.json")
 opts+=(-v "$data/codex:/home/ubuntu/.codex")
 opts+=(-v "$data/claude:/home/ubuntu/.claude")
+
+# :O, an overlay: the host's folder is the lower layer and no box writes it,
+# while a box may still write there -- a project's own `npx playwright
+# install` -- into a layer that ends with the box, as writes into the image
+# do. bin/build only adds folders and moves the `current` links while boxes
+# run; it removes a version three days after it stopped being current.
+opts+=(-v "$data/extras:/opt/extras:O")
 
 # An image store shared in from the host: `docker run <image>` inside the box
 # then needs no pull and no network. Fill it with

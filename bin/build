@@ -180,3 +180,28 @@ case "$warm_status" in
          echo "         The image is built; bin/run will do this work on first run." >&2
          exit "$warm_status" ;;
 esac
+
+# The browsers, the whisper model, Chrome and the two agent CLIs live in
+# data/extras, not in the image (notes/extras.md). The new image fills it:
+# what is there at the right version costs nothing, so a daily build fetches
+# only a new Claude or Codex, and the first build of a week (REFRESH) also a
+# new Chrome. Its own week stamp, written when the fill succeeds, so a failed
+# fill takes the new Chrome on the next build. Same mapping as bin/run, so the
+# files land owned by you, and the id-mapped copy above is the one this reuses.
+mkdir -p data/extras
+refresh=
+if test "$(cat data/extras/refresh 2>/dev/null)" != "$ubuntu_refresh"; then
+    refresh=1
+fi
+podman run --rm \
+    --pull=never \
+    --shm-size=2g \
+    --userns=keep-id:uid=1000,gid=1000 \
+    --user 1000:1000 \
+    -e HOME=/home/ubuntu \
+    -e REFRESH=$refresh \
+    -v "$PWD/data/extras:/opt/extras" \
+    --entrypoint /home/ubuntu/bin/extras-fill \
+    ai-box
+
+echo "$ubuntu_refresh" > data/extras/refresh

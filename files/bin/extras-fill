@@ -1,0 +1,197 @@
+#!/bin/bash
+
+# http://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
+# http://redsymbol.net/articles/unofficial-bash-strict-mode
+set -o nounset -o errexit -o pipefail
+
+script=`realpath $0`
+scriptdir=`dirname $script`
+scriptname=`basename $script`
+
+# Fills /opt/extras -- data/extras on the host -- with what the image leaves
+# out: Playwright's browsers, the headless shell of PLAYWRIGHT_SHELL_VERSION,
+# Cypress, the whisper model, Chrome, Claude Code and Codex. bin/build runs it
+# in the new image with the folder writable; notes/extras.md has the design.
+#
+#   extras-fill                  fill /opt/extras
+#   REFRESH=1 extras-fill        ...and take a new Chrome, if there is one
+#   EXTRAS=/tmp/x extras-fill    fill another folder
+#
+# Each entry is named by its version and checked before it is used, so a
+# version that is there costs nothing, and a failed download leaves the
+# previous one in place. An entry no longer current is kept for KEEP_DAYS
+# (default 3) after it was last current, for boxes started before the fill.
+
+root=${EXTRAS:-/opt/extras}
+keep_days=${KEEP_DAYS:-3}
+
+export PLAYWRIGHT_BROWSERS_PATH=$root/ms-playwright
+export CYPRESS_CACHE_FOLDER=$root/cypress
+export HF_HOME=$root/huggingface
+
+# Playwright deletes every revision no installed Playwright refers to, and the
+# headless shell's Playwright is a throwaway npx copy: without this the next
+# install would delete the shell, and a box on the previous image would lose
+# its browsers. Old revisions are removed below, by age.
+export PLAYWRIGHT_SKIP_BROWSER_GC=1
+
+tempdir=`mktemp -d -t tmp.XXXXXXXXXX`
+trap 'rm -rf "$tempdir"' EXIT
+
+mkdir -p $root/ms-playwright $root/cypress $root/huggingface $root/chrome $root/npm
+
+exec 9> $root/.lock
+if ! flock -n 9; then
+    echo "$scriptname: another fill is running on $root" >&2
+    exit 1
+fi
+
+# Left by a fill that was killed half way; the lock says none is running now.
+rm -rf $root/chrome/.*.tmp $root/npm/.*.tmp
+
+# Entries this fill wants, relative to $root, and what it records.
+wanted=()
+versions=()
+
+# The folders a `playwright install --dry-run` names, relative to $root.
+playwright_locations () {
+    awk '/Install location:/ { print "ms-playwright/" substr($NF, index($NF, "ms-playwright/") + 14) }'
+}
+
+# The current entry of chrome/ or npm/: a relative link, so it resolves the
+# same on the host and in the box, replaced in one rename.
+set_current () {
+    ln -sfn $2 $root/$1/.current.tmp
+    mv -T $root/$1/.current.tmp $root/$1/current
+}
+
+# Playwright: one revision per browser for the Playwright in the image.
+playwright_version=`node -p "require('playwright/package.json').version"`
+playwright install --no-shell chromium firefox webkit
+while read -r path; do
+    wanted+=($path)
+done < <(playwright install --dry-run --no-shell chromium firefox webkit | playwright_locations)
+playwright screenshot --browser chromium --channel chromium about:blank $tempdir/probe.png
+playwright screenshot --browser firefox about:blank $tempdir/probe.png
+playwright screenshot --browser webkit about:blank $tempdir/probe.png
+versions+=("playwright=$playwright_version")
+
+# A project that pins an older Playwright and launches it plainly needs that
+# release's headless shell; the screenshot is a real launch of it.
+shell_version=$PLAYWRIGHT_SHELL_VERSION
+npx --yes playwright@$shell_version install --only-shell chromium
+while read -r path; do
+    wanted+=($path)
+done < <(npx --yes playwright@$shell_version install --dry-run --only-shell chromium | playwright_locations)
+npx --yes playwright@$shell_version screenshot --browser chromium about:blank $tempdir/probe.png
+versions+=("playwright-shell=$shell_version")
+
+# Cypress: its Electron, for the cypress package in the image.
+cypress_version=`node -p "require('cypress/package.json').version"`
+cypress install
+cypress verify
+wanted+=(cypress/$cypress_version)
+versions+=("cypress=$cypress_version")
+
+# The whisper model, fetched once into Hugging Face's own layout; a second
+# run finds it and downloads nothing. The probe is a real transcription.
+ffmpeg -nostdin -v error -f lavfi -i sine=frequency=440:sample_rate=16000 -t 1 -y $tempdir/probe.wav
+python3 -c "from faster_whisper import WhisperModel; model = WhisperModel('$WHISPER_MODEL', device='cpu', compute_type='int8'); segments, info = model.transcribe('$tempdir/probe.wav'); list(segments); print('faster-whisper $WHISPER_MODEL', info.language)"
+versions+=("whisper_model=$WHISPER_MODEL")
+
+# Chrome: the current stable package, checked against the repository's
+# SHA256, unpacked without dpkg. It moves on with the weekly refresh, when
+# bin/build passes REFRESH=1, as the image's Chrome libraries do; a daily
+# build keeps the Chrome it has. Its libraries are in the image already, read
+# from the same metadata. Only /opt/google/chrome is kept: the package's cron
+# job and apt source are of no use in a box. chrome-sandbox loses its setuid
+# bit: Chrome sandboxes itself with user namespaces in the box.
+chrome_version=
+if test "${REFRESH:-}" != 1 && test -d $root/chrome/current; then
+    chrome_version=`readlink $root/chrome/current`
+fi
+if test -z "$chrome_version"; then
+    curl -fsSL https://dl.google.com/linux/chrome/deb/dists/stable/main/binary-amd64/Packages -o $tempdir/Packages
+    chrome_version=`awk '/^Package: google-chrome-stable$/ { stable=1 } stable && /^Version:/ { print $2; exit }' $tempdir/Packages`
+    chrome_filename=`awk '/^Package: google-chrome-stable$/ { stable=1 } stable && /^Filename:/ { print $2; exit }' $tempdir/Packages`
+    chrome_sha256=`awk '/^Package: google-chrome-stable$/ { stable=1 } stable && /^SHA256:/ { print $2; exit }' $tempdir/Packages`
+    test -n "$chrome_version"
+    test -n "$chrome_filename"
+    test -n "$chrome_sha256"
+fi
+if ! test -d $root/chrome/$chrome_version; then
+    curl -fsSL https://dl.google.com/linux/chrome/deb/$chrome_filename -o $tempdir/google-chrome.deb
+    echo "$chrome_sha256  $tempdir/google-chrome.deb" | sha256sum -c -
+    dpkg-deb -x $tempdir/google-chrome.deb $tempdir/deb
+    rm $tempdir/google-chrome.deb
+    chmod u-s $tempdir/deb/opt/google/chrome/chrome-sandbox
+    mv $tempdir/deb/opt/google/chrome $root/chrome/.$chrome_version.tmp
+    # Its D-Bus complaints fill a screen in a box without a bus: shown on failure only.
+    if ! $root/chrome/.$chrome_version.tmp/google-chrome --headless=new --dump-dom about:blank > /dev/null 2> $tempdir/chrome.log; then
+        cat $tempdir/chrome.log >&2
+        exit 1
+    fi
+    mv $root/chrome/.$chrome_version.tmp $root/chrome/$chrome_version
+fi
+set_current chrome $chrome_version
+$root/chrome/current/google-chrome --version
+wanted+=(chrome/$chrome_version)
+versions+=("google-chrome=$chrome_version")
+
+# Puppeteer goes to that Chrome, not to a download of its own. The image's
+# /usr/bin/google-chrome leads into /opt/extras, so it is tried only there.
+if test $root = /opt/extras; then
+    google-chrome --version
+fi
+node -e "Promise.resolve(require('puppeteer').executablePath()).then(p => { console.log('puppeteer browser: ' + p); if (p !== process.env.PUPPETEER_EXECUTABLE_PATH) { process.exit(1) } })"
+
+# Claude Code and Codex, installed together under one name, so the pair a box
+# starts with never changes under it.
+claude_version=`npm view @anthropic-ai/claude-code version`
+codex_version=`npm view @openai/codex version`
+test -n "$claude_version"
+test -n "$codex_version"
+npm_name=$claude_version-$codex_version
+if ! test -d $root/npm/$npm_name; then
+    NPM_CONFIG_PREFIX=$root/npm/.$npm_name.tmp npm install --global --no-audit --no-fund \
+        "@anthropic-ai/claude-code@$claude_version" \
+        "@openai/codex@$codex_version"
+    mv $root/npm/.$npm_name.tmp $root/npm/$npm_name
+    $root/npm/$npm_name/bin/claude --version
+    $root/npm/$npm_name/bin/codex --version
+fi
+set_current npm $npm_name
+wanted+=(npm/$npm_name)
+versions+=("claude-code=$claude_version" "codex=$codex_version")
+
+printf '%s\n' "${versions[@]}" > $root/.versions.tmp
+mv $root/.versions.tmp $root/versions
+
+# When each entry was last wanted, in seconds: "<epoch> <path>" a line. An
+# entry found on disk and not listed yet is listed as of now, so it is
+# removed only after KEEP_DAYS like any other.
+now=`date +%s`
+touch $root/.wanted
+{
+    printf "$now %s\n" "${wanted[@]}"
+    cat $root/.wanted
+} | sort -k2,2 -k1,1nr | awk '!seen[$2]++' > $root/.wanted.tmp
+for path in $root/ms-playwright/* $root/cypress/[0-9]* $root/chrome/[0-9]* $root/npm/[0-9]*; do
+    test -e $path || continue
+    awk -v path=${path#$root/} '$2 == path { found=1 } END { exit !found }' $root/.wanted.tmp \
+        || echo "$now ${path#$root/}" >> $root/.wanted.tmp
+done
+mv $root/.wanted.tmp $root/.wanted
+
+cutoff=$(( now - keep_days * 86400 ))
+awk -v cutoff=$cutoff '$1 < cutoff { print $2 }' $root/.wanted | while read -r path; do
+    test -e $root/$path || continue
+    echo "$scriptname: removing $path, not current for $keep_days days"
+    rm -rf "${root:?}/$path"
+done
+awk -v cutoff=$cutoff '$1 >= cutoff' $root/.wanted > $root/.wanted.tmp
+mv $root/.wanted.tmp $root/.wanted
+
+echo
+cat $root/versions
+du -sh $root

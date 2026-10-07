@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
 # Speech from an audio or video file, as text. PyAV reads .mp4/.webm/.mkv
-# directly, so nothing has to be extracted first, and the model ships inside
-# the image, so nothing is downloaded at runtime.
+# directly, so nothing has to be extracted first, and the model is in
+# /opt/extras (data/extras on the host, filled by bin/build), so nothing is
+# downloaded at runtime.
 #
 # transcribe cast.mp4
 # transcribe --plain voice.mp3
@@ -20,6 +21,8 @@ from faster_whisper import WhisperModel
 
 def main():
     args = parse_args()
+    if not os.path.isdir(os.path.join(os.environ.get('HF_HOME', ''), 'hub')):
+        sys.exit(f'transcribe: no whisper model in {os.environ.get("HF_HOME")}; on the host, run bin/build')
     model = WhisperModel(args.model, device='cpu', compute_type='int8')
     for path in args.media:
         transcribe_one(model, path, args)
@@ -45,7 +48,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Transcribe speech in audio or video files.')
     parser.add_argument('media', nargs='+', help='audio or video files')
     parser.add_argument('--model', default=os.environ.get('WHISPER_MODEL', 'small'),
-                        help='whisper model baked into the image (default: %(default)s)')
+                        help='whisper model in /opt/extras (default: %(default)s)')
     parser.add_argument('--lang', default=None, help='language code; detected when omitted')
     parser.add_argument('--plain', action='store_true', help='one paragraph, without timestamps')
     return parser.parse_args()

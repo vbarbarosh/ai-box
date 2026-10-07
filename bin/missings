@@ -207,6 +207,19 @@ else
     bad optional "ai-box" "bin/build"
 fi
 
+# What the image leaves out -- browsers, whisper model, Chrome, agent CLIs --
+# is in data/extras, with its own versions file in the same format.
+if test -f "$data/extras/versions"; then
+    if test -n "$versions"; then
+        ok "extras" "$short/extras, $(du -sh "$data/extras" 2>/dev/null | cut -f1)"
+        sed "s/^/  ${dim}          /; s/\$/${reset}/" "$data/extras/versions"
+    else
+        ok "extras" "$short/extras, $(wc -l < "$data/extras/versions") recorded"
+    fi
+else
+    bad optional "extras" "bin/build; bin/run needs it"
+fi
+
 if test -d "$data/images"; then
     ok "shared image store" "$(podman --root "$data/images" --storage-driver overlay images -q 2>/dev/null | wc -l) images"
 else

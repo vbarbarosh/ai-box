@@ -1,0 +1,17 @@
+#!/bin/bash
+
+# http://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
+# http://redsymbol.net/articles/unofficial-bash-strict-mode
+set -o nounset -o errexit -o pipefail
+
+# Chrome's files are not in the image: extras-fill unpacks them into
+# data/extras/chrome on the host, which bin/run mounts at /opt/extras, and
+# /opt/google/chrome links there. Say so when it has none, instead of
+# "No such file or directory".
+
+if ! test -x /opt/google/chrome/google-chrome; then
+    echo "google-chrome: no Chrome in /opt/extras/chrome; on the host, run bin/build" >&2
+    exit 127
+fi
+
+exec /opt/google/chrome/google-chrome "$@"

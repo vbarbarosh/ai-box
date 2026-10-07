@@ -1,17 +1,5 @@
 # syntax=docker/dockerfile:1
 
-# npm's metadata for the two CLIs. Each stage carries one release number, and
-# it is the cache key of the matching every-build layer at the end of the file.
-FROM ubuntu:24.04 AS refresh-claude
-
-ADD https://registry.npmjs.org/@anthropic-ai%2Fclaude-code/latest /claude/package.json
-RUN chmod 0444 /claude/package.json
-
-FROM ubuntu:24.04 AS refresh-codex
-
-ADD https://registry.npmjs.org/@openai%2Fcodex/latest /codex/package.json
-RUN chmod 0444 /codex/package.json
-
 # =============================================================================
 # Weekly layers
 #
@@ -34,13 +22,17 @@ ARG OXIPNG_VERSION=10.2.0
 ARG WHISPER_MODEL=small
 ARG TZ=Europe/Chisinau
 
+# The browsers, the speech model and the two agent CLIs are not in the image:
+# they live in data/extras on the host, which bin/build fills (extras-fill)
+# and bin/run mounts at /opt/extras. These variables are how every tool finds
+# them; notes/extras.md has the design.
 ENV NPM_CONFIG_PREFIX=/home/ubuntu/.local \
     NODE_PATH=/home/ubuntu/.local/lib/node_modules \
-    PATH=/home/ubuntu/bin:/home/ubuntu/.local/bin:${PATH} \
-    PLAYWRIGHT_BROWSERS_PATH=/home/ubuntu/.cache/ms-playwright \
+    PATH=/home/ubuntu/bin:/opt/extras/npm/current/bin:/home/ubuntu/.local/bin:${PATH} \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/extras/ms-playwright \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome \
-    CYPRESS_CACHE_FOLDER=/home/ubuntu/.cache/Cypress \
-    HF_HOME=/home/ubuntu/.cache/huggingface \
+    CYPRESS_CACHE_FOLDER=/opt/extras/cypress \
+    HF_HOME=/opt/extras/huggingface \
     WHISPER_MODEL=${WHISPER_MODEL}
 
 # Keep distribution packages in one layer. UBUNTU_REFRESH is the only thing
@@ -176,9 +168,10 @@ RUN chown ubuntu:ubuntu /home/ubuntu
 USER ubuntu
 
 # npm's download cache is retained by BuildKit for later builds but is not
-# committed to the image. Browser downloads use their separate runtime caches.
+# committed to the image. The browsers themselves are extras-fill's: neither
+# Puppeteer nor Cypress downloads one here.
 RUN --mount=type=cache,target=/home/ubuntu/.npm,uid=1000,gid=1000 \
-    PUPPETEER_SKIP_DOWNLOAD=true npm install --global --no-audit --no-fund \
+    PUPPETEER_SKIP_DOWNLOAD=true CYPRESS_INSTALL_BINARY=0 npm install --global --no-audit --no-fund \
         "playwright@${PLAYWRIGHT_VERSION}" \
         "puppeteer@${PUPPETEER_VERSION}" \
         "cypress@${CYPRESS_VERSION}" \
@@ -189,8 +182,8 @@ RUN --mount=type=cache,target=/home/ubuntu/.npm,uid=1000,gid=1000 \
 
 USER root
 
-# Install the pinned browser framework's system dependencies before downloading
-# its pinned browser revisions.
+# The system libraries of Playwright's browsers, which extras-fill downloads
+# into data/extras. Cypress's Electron needs no more than these.
 RUN --mount=type=cache,target=/var/cache/apt \
     --mount=type=cache,target=/var/lib/apt/lists \
     mv /etc/apt/apt.conf.d/docker-clean /tmp/docker-clean \
@@ -203,16 +196,6 @@ RUN --mount=type=cache,target=/var/cache/apt \
 RUN chown ubuntu:ubuntu /home/ubuntu
 
 USER ubuntu
-
-# --no-shell leaves out chromium_headless_shell, a second 262 MB Chromium whose
-# only job is to be the headless one. Without it a headless launch has to ask
-# for the full browser's own headless mode with `channel: 'chromium'`; a plain
-# `chromium.launch()` looks for the shell and fails.
-RUN playwright install --no-shell chromium firefox webkit \
-    && playwright install --list
-
-RUN cypress verify \
-    && cypress info
 
 RUN printf '\n%s\n%s\n' \
         'alias codex="codex -a never -s danger-full-access"' \
@@ -251,8 +234,8 @@ RUN --mount=type=cache,target=/home/ubuntu/.npm,uid=1000,gid=1000 \
 
 # Speech in a recording is unreadable without transcription: faster-whisper
 # turns an audio or video track into text. CTranslate2 runs it on the CPU
-# without torch, PyAV reads .mp4/.webm/.mkv directly, and the model (~464 MB
-# for small) is fetched at build time so transcription works offline. Build
+# without torch, and PyAV reads .mp4/.webm/.mkv directly. The model (~464 MB
+# for small) is extras-fill's, so transcription still works offline. Build
 # with --build-arg WHISPER_MODEL=base for a smaller, less accurate one.
 # av is held below 19: faster-whisper 1.2.1 passes av.open(metadata_errors=),
 # which av 19 removed.
@@ -260,10 +243,8 @@ RUN --mount=type=cache,target=/home/ubuntu/.cache/pip,uid=1000,gid=1000 \
     faster_whisper_version="$(curl -fsSL https://pypi.org/pypi/faster-whisper/json | jq -r .info.version)" \
     && python3 -m pip install --user --break-system-packages \
         "faster-whisper==${faster_whisper_version}" "av<19" \
-    && ffmpeg -nostdin -v error -f lavfi -i sine=frequency=440:sample_rate=16000 -t 1 -y /tmp/probe.wav \
-    && python3 -c "from faster_whisper import WhisperModel; model = WhisperModel('${WHISPER_MODEL}', device='cpu', compute_type='int8'); segments, info = model.transcribe('/tmp/probe.wav'); list(segments); print('faster-whisper ${WHISPER_MODEL}', info.language)" \
-    && rm /tmp/probe.wav \
-    && printf 'faster-whisper=%s\nwhisper_model=%s\n' "${faster_whisper_version}" "${WHISPER_MODEL}" >> /etc/ai-box/versions
+    && python3 -c "import faster_whisper; print('faster-whisper', faster_whisper.__version__)" \
+    && echo "faster-whisper=${faster_whisper_version}" >> /etc/ai-box/versions
 
 USER root
 
@@ -401,36 +382,30 @@ RUN touch /etc/containers/nodocker
 # No `usermod -aG docker ubuntu`: there is no daemon and no socket to be
 # granted access to. Membership in a docker group was itself root-equivalent.
 
-# Chrome is the largest weekly-moving system package, so keep it near the end.
-# Its repository metadata supplies the exact version used to verify the
-# downloaded package.
+# Chrome's files are extras-fill's, unpacked into data/extras/chrome; the
+# image keeps only what they need from the system: the package's Depends, read
+# from the same repository metadata the fill downloads it by, and installed
+# without the package. So the paths are Chrome's usual ones --
+# /opt/google/chrome, /usr/bin/google-chrome -- and lead into /opt/extras.
 #
-# It is also the only Chrome in the image. Puppeteer would otherwise download
-# its own -- another 652 MB of the same browser, a couple of patch releases
-# behind this one -- so PUPPETEER_EXECUTABLE_PATH points it here instead, and
-# the two checks below are where that substitution is proven: this is the first
-# layer where both Chrome and Puppeteer exist.
+# It is the only Chrome in the image. Puppeteer would otherwise download its
+# own, the same browser a couple of patch releases behind, so
+# PUPPETEER_EXECUTABLE_PATH points it here; extras-fill checks that it does.
+# /usr/bin/google-chrome is the guard in files/bin.ai, which says what is
+# missing when data/extras has no Chrome.
 RUN --mount=type=cache,target=/var/cache/apt \
     --mount=type=cache,target=/var/lib/apt/lists \
     curl -fsSL https://dl.google.com/linux/chrome/deb/dists/stable/main/binary-amd64/Packages -o /tmp/Packages \
-    && chrome_version="$(awk '/^Package: google-chrome-stable$/ { stable=1 } stable && /^Version:/ { print $2; exit }' /tmp/Packages)" \
-    && chrome_filename="$(awk '/^Package: google-chrome-stable$/ { stable=1 } stable && /^Filename:/ { print $2; exit }' /tmp/Packages)" \
-    && chrome_sha256="$(awk '/^Package: google-chrome-stable$/ { stable=1 } stable && /^SHA256:/ { print $2; exit }' /tmp/Packages)" \
-    && test -n "${chrome_version}" \
-    && test -n "${chrome_filename}" \
-    && test -n "${chrome_sha256}" \
+    && chrome_depends="$(awk '/^Package: google-chrome-stable$/ { stable=1 } stable && /^Depends:/ { sub(/^Depends: /, ""); print; exit }' /tmp/Packages)" \
+    && test -n "${chrome_depends}" \
+    && rm /tmp/Packages \
     && mv /etc/apt/apt.conf.d/docker-clean /tmp/docker-clean \
     && apt-get update \
-    && curl -fsSL "https://dl.google.com/linux/chrome/deb/${chrome_filename}" -o /tmp/google-chrome.deb \
-    && echo "${chrome_sha256}  /tmp/google-chrome.deb" | sha256sum -c - \
-    && apt-get install -y --no-install-recommends /tmp/google-chrome.deb \
-    && test "$(dpkg-query -W -f='${Version}' google-chrome-stable)" = "${chrome_version}" \
-    && rm /tmp/google-chrome.deb /tmp/Packages \
-    && google-chrome --version \
-    && test -x "${PUPPETEER_EXECUTABLE_PATH}" \
-    && node -e "Promise.resolve(require('puppeteer').executablePath()).then(p => { console.log('puppeteer browser: ' + p); if (p !== process.env.PUPPETEER_EXECUTABLE_PATH) { process.exit(1) } })" \
-    && echo "google-chrome=${chrome_version}" >> /etc/ai-box/versions \
-    && mv /tmp/docker-clean /etc/apt/apt.conf.d/docker-clean
+    && apt-get satisfy -y --no-install-recommends "${chrome_depends}" \
+    && mv /tmp/docker-clean /etc/apt/apt.conf.d/docker-clean \
+    && install -d -m 0755 /opt/google /opt/extras \
+    && ln -s /opt/extras/chrome/current /opt/google/chrome \
+    && ln -s /usr/local/bin/google-chrome /usr/bin/google-chrome
 
 # Times shown by the shell, by build tools, and by recorded output are the local
 # times of the people reading them. tzdata arrives with the packages above, so
@@ -442,69 +417,24 @@ RUN ln -sf /usr/share/zoneinfo/${TZ} /etc/localtime \
     && echo "${TZ}" > /etc/timezone \
     && date
 
-# buildah re-creates the parent directory of a cache-mount target as root,
-# where BuildKit leaves its owner alone. Restore it before dropping to ubuntu,
-# or `USER ubuntu` lands in a home directory it cannot write to.
+# The cache mounts above leave /home/ubuntu owned by root under buildah, and
+# no `USER ubuntu` follows to trip over it -- the entrypoint drops to ubuntu at
+# run time instead. Hand the home directory back here, or the runtime user
+# opens a shell in a home it cannot write to.
 #
 # ~/.codex and ~/.claude are made in the same breath, as root and owned by
-# ubuntu. They are the mountpoints bin/run binds the host's agent state onto,
-# so they have to exist -- and they have to exist *before* the two layers
-# below, which run each CLI out of a home directory the npm cache mount has
-# just handed back to root: creating a directory there fails, writing inside an
-# existing one does not. Codex is the one that trips over it today; ~/.claude
-# is made here so a Claude release that touches its own state directory on
-# startup does not become the same build failure.
+# ubuntu: they are the mountpoints bin/run binds the host's agent state onto.
 RUN chown ubuntu:ubuntu /home/ubuntu \
     && install -d -o ubuntu -g ubuntu -m 0755 /home/ubuntu/.codex /home/ubuntu/.claude
 
-USER ubuntu
-
 # A project that pins an older Playwright and launches it plainly needs that
-# release's headless shell. The screenshot is a real launch: a version listing
-# passes without the binary.
-ARG PLAYWRIGHT_SHELL_VERSION=1.61.1
+# release's headless shell; extras-fill installs it beside the current
+# browsers.
+ENV PLAYWRIGHT_SHELL_VERSION=1.61.1
 
-RUN --mount=type=cache,target=/home/ubuntu/.npm,uid=1000,gid=1000 \
-    npx --yes "playwright@${PLAYWRIGHT_SHELL_VERSION}" install --only-shell chromium \
-    && npx --yes "playwright@${PLAYWRIGHT_SHELL_VERSION}" screenshot --browser chromium about:blank /tmp/probe.png \
-    && rm /tmp/probe.png \
-    && echo "playwright-shell=${PLAYWRIGHT_SHELL_VERSION}" >> /etc/ai-box/versions
-
-# =============================================================================
-# Every-build layers
-#
-# The refresh stages at the top of the file read npm on every build, so these
-# two layers follow a CLI release the day it appears. They are last and cheap:
-# a new Claude or Codex costs seconds and leaves every layer above untouched.
-# =============================================================================
-
-# From npm, not `curl https://claude.ai/install.sh | bash`: the version above
-# is already read from the npm registry, install.sh publishes no checksum to
-# check it against, and npm verifies the package tarball's integrity itself.
-# NPM_CONFIG_PREFIX puts the binary at the same ~/.local/bin/claude either way.
-RUN --mount=type=bind,from=refresh-claude,source=/claude,target=/tmp/refresh \
-    --mount=type=cache,target=/home/ubuntu/.npm,uid=1000,gid=1000 \
-    CLAUDE_VERSION="$(jq -r .version /tmp/refresh/package.json)" \
-    && echo "Installing Claude ${CLAUDE_VERSION}..." \
-    && npm install --global --no-audit --no-fund "@anthropic-ai/claude-code@${CLAUDE_VERSION}" \
-    && "$HOME/.local/bin/claude" --version \
-    && echo "claude-code=${CLAUDE_VERSION}" >> /etc/ai-box/versions
-
-RUN --mount=type=bind,from=refresh-codex,source=/codex,target=/tmp/refresh \
-    --mount=type=cache,target=/home/ubuntu/.npm,uid=1000,gid=1000 \
-    CODEX_VERSION="$(jq -r .version /tmp/refresh/package.json)" \
-    && echo "Installing Codex ${CODEX_VERSION}..." \
-    && npm install --global --no-audit --no-fund "@openai/codex@${CODEX_VERSION}" \
-    && codex --version \
-    && echo "codex=${CODEX_VERSION}" >> /etc/ai-box/versions
-
-USER root
-
-# The npm cache mounts in the two layers above leave /home/ubuntu owned by root
-# under buildah, and no `USER ubuntu` follows to trip over it -- the entrypoint
-# drops to ubuntu at run time instead. Hand the home directory back here, or the
-# runtime user opens a shell in a home it cannot write to.
-RUN chown ubuntu:ubuntu /home/ubuntu
+# What lives in data/extras is recorded by extras-fill in a file of its own,
+# in the same format; this line points there.
+RUN echo '# browsers, speech model, claude, codex: /opt/extras/versions' >> /etc/ai-box/versions
 
 # The mountpoint for the read-only shared image store. Both storage configs
 # name it, so it has to exist even when nothing is mounted over it -- otherwise
@@ -541,7 +471,7 @@ ENV XDG_RUNTIME_DIR=/run/user/1000
 COPY --chown=1000:1000 --chmod=0755 files/bin/ /home/ubuntu/bin/
 
 # Tools the assistant reaches for: `tts` speaks narration, `transcribe` reads it
-# back out of a recording.
+# back out of a recording, `google-chrome` starts the Chrome in /opt/extras.
 COPY --chown=0:0 --chmod=0755 files/bin.ai/ /usr/local/bin/
 
 # A drop-in, not a replacement: overwriting /etc/containers/containers.conf

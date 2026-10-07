@@ -59,7 +59,7 @@ podman rm -af
 bin/configure      # install what the host is missing (idempotent)
 bin/missings       # report what is here and what is not; --deep also runs a
                    # container inside the box
-bin/build          # build the image (tag: ai-box)
+bin/build          # build the image (tag: ai-box) and fill data/extras
 bin/images         # list the shared image store; add: bin/images mysql:8.0
 
 bin/run            # open the box on the current directory
@@ -92,6 +92,7 @@ symlink does not get around it.
 | `data/claude{,.json}` → `~/.claude{,.json}` | rw | so the agent keeps its login and history |
 | `data/codex{,.json}` → `~/.codex{,.json}` | rw | same |
 | `data/images` → `/var/lib/shared` | rw | the shared image store, when it exists |
+| `data/extras` → `/opt/extras` | overlay | browsers, whisper model, Chrome, `claude`, `codex`; writes end with the box. See [Browsers, model and agent CLIs](#browsers-model-and-agent-clis) |
 | sockets → `/run/git` | ro | with `GIT=commit`: `commit`, `push` and `pull` ask the host |
 
 Agent state is the box's own, kept out of your home dotfiles: the box logs in,
@@ -160,6 +161,7 @@ Everything the box keeps between runs lives in this repo, under `data/`:
 data/claude/  data/claude.json     the agents' state and logins
 data/codex/   data/codex.json
 data/images/                       shared image store, for inner docker run
+data/extras/                       browsers, whisper model, Chrome, agent CLIs
 data/refresh                       the ISO week of the last finished build
 ```
 
@@ -179,8 +181,46 @@ separate image stores. Deleting a clone deletes its state with it -- and a
 fresh clone starts logged out, so keep the clone you use.
 
 The other side of state living in an ignored directory: `git clean -xdf` in
-this repo takes the logins and the image store with it. `git pull` and a
+this repo takes the logins and the image store with it, and `data/extras`,
+which the next `bin/build` downloads again (3.5 GB). `git pull` and a
 rebuild, the daily path, leave `data/` alone.
+
+### Browsers, model and agent CLIs
+
+They are not in the image. Playwright's browsers, Cypress's Electron, the
+whisper model, Chrome and the two agent CLIs are 3.5 GB of the 6 the image
+used to be, and they change at their own pace: the CLIs daily, the rest
+weekly or less. So they live in `data/extras`, each under its version:
+
+```
+data/extras/
+  versions          what is here, name=version, as in /etc/ai-box/versions
+  ms-playwright/    chromium-1234/, firefox-1538/, webkit-2336/, headless shell
+  cypress/          14.5.4/
+  huggingface/      the whisper model
+  chrome/           155.0.8059.39-1/, current -> 155.0.8059.39-1
+  npm/              2.1.292-0.160.1/ (claude-code-codex), current -> ...
+```
+
+- **`bin/build` fills it**, at the end, by running `extras-fill` in the new
+  image. What is there at the right version costs nothing: a daily build
+  installs a new Claude or Codex beside the old ones and moves `npm/current`,
+  and the image itself, unchanged, is not copied again. The first build of a
+  week also takes a new Chrome. Each entry is checked (a real launch, a real
+  transcription, `--version`) before it is renamed into place.
+- **`bin/run` mounts it** at `/opt/extras` as an overlay (`:O`): the host's
+  folder is never written by a box, and what a box writes there -- a
+  project's own `npx playwright install` -- ends with it. With no
+  `data/extras/versions`, `bin/run` stops and says to run `bin/build`.
+- **Inside, nothing moved.** `claude` and `codex` are on the `PATH`;
+  `PLAYWRIGHT_BROWSERS_PATH`, `CYPRESS_CACHE_FOLDER` and `HF_HOME` point into
+  `/opt/extras`; `/opt/google/chrome` and `/usr/bin/google-chrome` lead there.
+  `google-chrome` and `transcribe` say "run bin/build" when their part is
+  missing.
+- **Old versions** stay three days after they stop being current, for boxes
+  started before the fill (`KEEP_DAYS`), then the next fill removes them.
+
+The design and its reasons: [notes/extras.md](notes/extras.md).
 
 ### Limits on the box
 
@@ -211,6 +251,7 @@ processes are reaped and `podman stop` ends the box at once.
 | `now` | timestamp, for pasting into notes |
 | `g` | recursive `ag` search: `g pattern` |
 | `templ` | the skeleton these scripts start from: `templ > new && vi new` |
+| `extras-fill` | fills `/opt/extras`; `bin/build` runs it with `data/extras` mounted writable |
 | `commit` | one patch, one commit, through the host: `commit <file.patch>` or `commit -m <message> <path>...`; a `GIT=commit` box only |
 | `push` | push the branch the box was started on, through the host; a `GIT=commit` box only |
 | `pull` | fetch that branch and merge it, on the host; stops on a conflict; a `GIT=commit` box only |
@@ -306,10 +347,11 @@ BuildKit cache mounts work unchanged.
 
 There used to be four Chromiums in the image and two ImageMagicks. Now:
 
-- **One Chrome.** `google-chrome-stable` is it. Puppeteer is pointed at it with
+- **One Chrome.** `google-chrome-stable`, unpacked into `data/extras/chrome`,
+  is it. Puppeteer is pointed at it with
   `PUPPETEER_EXECUTABLE_PATH` instead of downloading its own copy, which is the
   same browser a couple of patch releases behind. `puppeteer.launch()` needs no
-  argument; the build asserts `executablePath()` resolves there.
+  argument; `extras-fill` asserts `executablePath()` resolves there.
 - **One Chromium for Playwright**, installed with `--no-shell`. A headless
   launch asks for the full browser's headless mode with `channel: 'chromium'`
   rather than a second 262 MB build whose only job is to be the headless one;
@@ -345,8 +387,10 @@ Only seven versions are pinned as build arguments (Node, Playwright, the
 Playwright headless shell, Puppeteer, Cypress, ImageMagick, oxipng). Everything else -- the Python and npm libraries,
 phpredis, Composer, yt-dlp, Chrome, and the two agent CLIs -- asks its
 upstream for the current release at build time, so two builds a week apart
-differ. Each layer records what it resolved in `/etc/ai-box/versions`, and
-`bin/missings --versions` prints it for the image you have. Every download is
+differ. Each layer records what it resolved in `/etc/ai-box/versions`;
+`extras-fill` records Chrome, the browsers, the model and the CLIs in
+`/opt/extras/versions`, in the same format. `bin/missings --versions` prints
+both. Every download is
 checksum-verified, but the checksum comes from the same publisher as the
 artifact: that guards against corruption and torn releases, not against a
 compromised upstream. npm, pip and apt add their own registry-side integrity
