@@ -67,6 +67,8 @@ bin/run claude     # ...and go straight into an agent
 bin/run make test  # ...or run one command and exit
 NOTES=~/path/to/notes/20260927_005300 bin/run claude
                    # ...with a Visual Notes note at /notes
+REPOS=~/w bin/run claude
+                   # ...with ~/w at /repos instead of ~/repos; REPOS= for none
 GIT=commit bin/run claude
                    # ...letting the agent commit, push and pull the branch
                    # you are on, through the host; see Commit, push and pull
@@ -87,7 +89,7 @@ symlink does not get around it.
 | `$PWD` → `/app` | rw | the project; the only writable host path |
 | `$PWD/.git` | **ro** | mounted over the writable workspace, when present; always |
 | `$PWD/.env`, `$PWD/.env.*` | hidden | each replaced with `/dev/null`, so secrets never enter the box. `AI_BOX_MASK="a.pem b.json"` hides more |
-| `~/repos` → `/repos` | ro | |
+| `~/repos` → `/repos` | ro | or `$REPOS` when set; set but empty, no `/repos` |
 | `$NOTES` → `/notes` | rw | a Visual Notes note, when `NOTES` is set |
 | `data/claude{,.json}` → `~/.claude{,.json}` | rw | so the agent keeps its login and history |
 | `data/codex{,.json}` → `~/.codex{,.json}` | rw | same |

@@ -266,9 +266,30 @@ fi
 
 # Mounted when present, so this script still runs on a machine that has not
 # set them up. An absent path would otherwise be created as an empty
-# directory.
-if test -e "$HOME/repos"; then
-    opts+=(-v "$HOME/repos:/repos:ro")
+# directory. REPOS names another folder for /repos; set but empty, no /repos.
+#   REPOS=~/w bin/run claude
+# Set but wrong is an error, as with NOTES. Read-only, but never /, $HOME or
+# anything containing it: the box would read every key there.
+if test -z "${REPOS+set}"; then
+    if test -e "$HOME/repos"; then
+        opts+=(-v "$HOME/repos:/repos:ro")
+    fi
+elif test -n "$REPOS"; then
+    if ! test -d "$REPOS"; then
+        echo "error: REPOS is not a directory: $REPOS" >&2
+        exit 1
+    fi
+    repos=$(realpath "$REPOS")
+    case "$home/" in
+        "$repos"/*)
+            echo "error: REPOS ($repos) contains your home directory ($home)" >&2
+            exit 1 ;;
+    esac
+    if test "$repos" = /; then
+        echo "error: refusing to mount / as REPOS" >&2
+        exit 1
+    fi
+    opts+=(-v "$repos:/repos:ro")
 fi
 
 # A Visual Notes note, read-write, so the agent answers in it: NOTES names the

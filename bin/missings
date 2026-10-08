@@ -235,7 +235,15 @@ if test -f "$data/claude.json"; then ok "claude.json" "agent config, rw";  else 
 if test -d "$data/codex";       then ok "codex"       "agent state, rw";   else bad optional "codex"       "created on first run"; fi
 if test -f "$data/codex.json";  then ok "codex.json"  "agent config, rw";  else bad optional "codex.json"  "created on first run"; fi
 # shellcheck disable=SC2088  # the tilde is a label, not a path
-if test -d "$HOME/repos";        then ok '~/repos'      "/repos, read-only"; else bad optional '~/repos'      "mkdir it to mount it"; fi
+if test -z "${REPOS+set}"; then
+    if test -d "$HOME/repos";    then ok '~/repos'      "/repos, read-only"; else bad optional '~/repos'      "mkdir it, or set REPOS, to mount it"; fi
+elif test -z "$REPOS"; then
+    ok 'REPOS'       "empty: no /repos"
+elif test -d "$REPOS"; then
+    ok 'REPOS'       "$REPOS as /repos, read-only"
+else
+    bad required 'REPOS'       "not a directory: $REPOS"
+fi
 
 # Stale container records naming a runtime that is no longer installed make
 # every podman command noisy. Worth naming, because the error does not say so.
