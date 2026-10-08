@@ -69,6 +69,11 @@ have () {
 echo
 echo "host tools"
 have podman    podman    podman
+# bin/run's --userns=keep-id:uid=1000,gid=1000 needs 4.3; Ubuntu 22.04 has 3.4.4.
+podman_have=$(podman --version 2>/dev/null | awk '{print $3}')
+if test -n "$podman_have" && dpkg --compare-versions "$podman_have" lt 4.3 2>/dev/null; then
+    bad required "podman 4.3" "$podman_have here; upgrade to Ubuntu 24.04"
+fi
 have crun      crun      crun
 have newuidmap newuidmap uidmap
 

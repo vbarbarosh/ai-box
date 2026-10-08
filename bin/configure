@@ -71,6 +71,29 @@ if ! command -v apt-get >/dev/null 2>&1; then
     exit 1
 fi
 
+# bin/run starts the box with --userns=keep-id:uid=1000,gid=1000, which podman
+# takes from 4.3 on. Ubuntu 22.04 ships 3.4.4 (and no passt): stop here with
+# that, not halfway through apt on the first package it lacks.
+podman_min=4.3
+if command -v podman >/dev/null 2>&1; then
+    podman_have=$(podman --version 2>/dev/null | awk '{print $3}')
+    podman_from="installed"
+else
+    podman_have=$(apt-cache policy podman 2>/dev/null | awk '$1 == "Candidate:" {print $2}')
+    podman_from="the apt version"
+fi
+if test -z "$podman_have" || test "$podman_have" = "(none)"; then
+    echo "error: apt has no podman package; ai-box needs podman $podman_min or newer." >&2
+    echo "       Ubuntu 24.04 has it." >&2
+    exit 1
+fi
+if dpkg --compare-versions "$podman_have" lt "$podman_min"; then
+    echo "error: podman $podman_have is $podman_from here; ai-box needs $podman_min or newer." >&2
+    echo "       $(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-This system}") is too old for it: upgrade to Ubuntu 24.04" >&2
+    echo "       (sudo do-release-upgrade), then run bin/$scriptname again." >&2
+    exit 1
+fi
+
 echo
 echo "packages"
 

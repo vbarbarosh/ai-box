@@ -20,6 +20,11 @@ Podman**, so the host needs Podman and the pieces rootless mode depends on:
 sudo apt install -y podman uidmap passt slirp4netns crun catatonit
 ```
 
+Podman has to be **4.3 or newer**: `bin/run` starts the box with
+`--userns=keep-id:uid=1000,gid=1000`. That is Ubuntu 24.04 (podman 4.9);
+Ubuntu 22.04 has podman 3.4.4 and no `passt`, so upgrade it first
+(`sudo do-release-upgrade`). `bin/configure` and `bin/missings` say so.
+
 Plus, from the kernel and your user account:
 
 | requirement | why |
