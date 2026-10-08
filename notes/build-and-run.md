@@ -13,6 +13,13 @@ the internals become, they serve this.
 3. **Once a week, the full refresh.** Ubuntu packages, browsers, Python and
    npm libraries, everything else: `bin/build` does it itself on the first
    build of a new week (UTC ISO week), as it does today.
+4. **The box ends with `bin/run`.** When the process that started the box
+   ends, by any signal that can be caught (SIGHUP when its terminal closes,
+   SIGTERM, SIGINT), no process of the box survives it: the container is
+   stopped within seconds, its agent included. The one exception is a bare
+   SIGKILL to `bin/run` with nothing before it, for nothing can run in a
+   killed process. [goal.md](goal.md) asks it from the start: "when
+   terminated - entire created environment should gone".
 
 ## Why
 
@@ -22,6 +29,14 @@ image, a new Claude made a new image id, and podman copied the whole 6 GB image
 for it (see
 [idmap-2026-09-04](idmap-2026-09-04.md), [audit-2026-10-07](audit-2026-10-07.md)
 BOX-01).
+
+Rule 4 came from Visual Notes on 2026-10-08. It ends an agent by ending
+its shell: SIGHUP to the shell, SIGTERM to the rest of the tree, SIGKILL 3 s
+later. `bin/run` exec'd `podman run`, which is only a client of conmon, so
+the container lived on, and the old agent kept writing to the note beside
+the new one. Since then `bin/run` keeps podman in the background and stops
+the container by its id on a signal, with the stop detached so it finishes
+after the SIGKILL (README, "The box ends with `bin/run`").
 
 ## Where it stands today
 
