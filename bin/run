@@ -79,6 +79,18 @@ fi
 
 opts=()
 
+# Short-lived files of this run: the container's id, and with GIT=commit the
+# relay scripts and their sockets. Gone when bin/run ends.
+run=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/ai-box.XXXXXX")
+relays=()
+cleanup () {
+    if test "${#relays[@]}" -gt 0; then
+        kill "${relays[@]}" 2>/dev/null || true
+    fi
+    rm -rf "$run"
+}
+trap cleanup EXIT
+
 # Read-only, mounted over the read-write workspace, always: a box with write
 # access to .git can rewrite history, move or delete any branch, drop stashes.
 # GIT=commit gives the agent commit, push and pull through the host instead;
@@ -124,7 +136,6 @@ shopt -u nullglob dotglob
 #   push     git push --no-follow-tags origin <branch>:<branch>
 #   pull     git fetch of <branch>, then git merge; a conflict is undone
 # No force, no other branch, no tags, no rewriting. The relays end with the box.
-relays=()
 if test -n "$git_relays"; then
     branch=$(git -C "$workspace" symbolic-ref --quiet --short HEAD || true)
     if ! test -d "$workspace/.git"; then
@@ -141,9 +152,8 @@ if test -n "$git_relays"; then
     fi
     # The scripts stay outside the box; only box/ goes in, read-only, for the
     # sockets and the branch name.
-    relaydir=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/ai-box-git.XXXXXX")
-    mkdir "$relaydir/box"
-    trap 'kill "${relays[@]}" 2>/dev/null; rm -rf "$relaydir"' EXIT
+    relaydir=$run/git
+    mkdir -p "$relaydir/box"
     echo "$branch" > "$relaydir/box/branch"
     # relay <name> < body: serves the script on box/<name>.sock. Each
     # connection runs it once: the box's bytes on its stdin, its output back.
@@ -424,6 +434,7 @@ fi
 # running one fixed script there.
 
 box=(podman run --rm -i "${tty[@]}" \
+    --cidfile "$run/cid" \
     --pull=never \
     --shm-size=2g \
     "${opts[@]}" \
@@ -438,10 +449,33 @@ box=(podman run --rm -i "${tty[@]}" \
     --sysctl net.ipv4.ping_group_range="1000 1000" \
     ai-box "$@")
 
-# The relays have to be stopped when the box ends, so bin/run waits for it;
-# without them there is nothing to wait for.
-if test "${#relays[@]}" -gt 0; then
-    "${box[@]}"
-else
-    exec "${box[@]}"
-fi
+# The box ends with bin/run. `podman run` is only a client: the container
+# runs under conmon, and when podman run is killed the container runs on.
+# That is how an agent outlived the shell Visual Notes had ended (SIGHUP to
+# the shell, SIGTERM to the rest, SIGKILL 3 s later) and went on writing to
+# its note beside the next agent. So podman runs in the background here, and
+# SIGHUP, SIGTERM or SIGINT to bin/run stops the container: SIGTERM to its
+# init, SIGKILL 3 s later. The stop is detached, in a session of its own, so
+# it finishes when bin/run is killed in the middle of it. Before the id file
+# is written there is no container yet, and the signal goes to podman run.
+# Ctrl-C with a terminal never gets here: the tty is raw and the box sees
+# the keystroke. Only a bare SIGKILL to bin/run leaves the box running.
+stop_box () {
+    trap '' HUP INT TERM
+    if test -s "$run/cid"; then
+        ( setsid podman stop --time 3 "$(cat "$run/cid")" </dev/null >/dev/null 2>&1 & )
+    else
+        kill -TERM "$box_pid" 2>/dev/null
+    fi
+}
+trap stop_box HUP INT TERM
+"${box[@]}" <&0 &
+box_pid=$!
+
+# A trapped signal returns from wait before the box has ended: wait again,
+# and leave with the box's own status, as exec did.
+status=0
+while kill -0 "$box_pid" 2>/dev/null; do
+    wait "$box_pid" && status=0 || status=$?
+done
+exit "$status"

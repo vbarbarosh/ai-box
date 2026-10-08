@@ -248,6 +248,18 @@ Set one to `0` to lift it. `bin/run` also puts a real init at PID 1
 (`--init`, Podman's own `catatonit`) whenever the host has it, so orphaned
 processes are reaped and `podman stop` ends the box at once.
 
+### The box ends with `bin/run`
+
+`podman run` is only a client: the container runs under `conmon`, and a
+`podman run` that is killed leaves it running. So `bin/run` keeps podman in
+the background and, on SIGHUP, SIGTERM or SIGINT (the terminal closed, a
+`kill`, Visual Notes ending an agent), stops the container: SIGTERM to its
+init, SIGKILL 3 s later. The stop is detached from `bin/run`, so it finishes
+even when `bin/run` is killed meanwhile, as Visual Notes does 3 s after its
+SIGTERM. The box's exit status is `bin/run`'s. Only a bare SIGKILL to
+`bin/run`, with no signal before it, leaves the box running; `podman ps` and
+`podman stop` then.
+
 ### Helpers on the `PATH`
 
 `files/bin/` is installed to `~/bin` inside the box, so these are just there:
