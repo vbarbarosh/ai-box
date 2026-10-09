@@ -299,7 +299,7 @@ fi
 # anything containing it: the box would read every key there.
 if test -z "${REPOS+set}"; then
     if test -e "$HOME/repos"; then
-        refuse_agent "~/repos" "$(realpath "$HOME/repos")"
+        refuse_agent "the default ~/repos" "$(realpath "$HOME/repos")"
         opts+=(-v "$HOME/repos:/repos:ro")
     fi
 elif test -n "$REPOS"; then
