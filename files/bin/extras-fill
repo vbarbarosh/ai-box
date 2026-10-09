@@ -118,6 +118,7 @@ if test -n "${IMAGE_ID:-}" && test "$(head -1 $root/.filled 2>/dev/null)" = "$st
     if test -n "$filled"; then
         echo "$scriptname: nothing new since the last fill; probes skipped"
         cat $root/versions
+        EXIT_MESSAGE="${GREEN}extras-fill succeeded${RESET}"
         exit 0
     fi
 fi
