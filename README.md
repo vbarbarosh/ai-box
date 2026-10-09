@@ -87,6 +87,11 @@ or from `/`, because `$PWD` is handed to the box read-write and from there
 that would be every dotfile and key at once. Paths are resolved first, so a
 symlink does not get around it.
 
+Your ssh-agent stays outside too. `SSH_AUTH_SOCK` is not passed into the box,
+and `bin/run` refuses to start when the workspace, `REPOS` or `NOTES` holds
+the agent's socket (a box started from `/tmp` would see `/tmp/ssh-*/agent.*`
+and could use every key in it). `pull` and `push` use the agent on the host.
+
 ### What `bin/run` gives the box
 
 | path | mode | |

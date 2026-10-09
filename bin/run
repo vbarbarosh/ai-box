@@ -26,6 +26,23 @@ case "$home/" in
         exit 1 ;;
 esac
 
+# Your ssh-agent stays outside. podman passes no variable it is not given, so
+# SSH_AUTH_SOCK never enters; but a mount that holds the socket hands it in,
+# and the box signs with every key the agent holds. Read-only does not help.
+agent=
+if test -S "${SSH_AUTH_SOCK:-}"; then
+    agent=$(realpath "$SSH_AUTH_SOCK")
+fi
+refuse_agent () {
+    case "$agent" in
+        "$2"/*)
+            echo "error: $1 ($2) holds your ssh-agent's socket ($agent);" >&2
+            echo "       mounted, it would let the box use every key the agent holds." >&2
+            exit 1 ;;
+    esac
+}
+refuse_agent "the workspace" "$workspace"
+
 # Fail fast when the image is not built. Without this podman treats `ai-box` as
 # a short name and tries to pull it from a registry, which on a host with
 # docker.io in registries.conf looks like a hang and leaves a half-made
@@ -282,6 +299,7 @@ fi
 # anything containing it: the box would read every key there.
 if test -z "${REPOS+set}"; then
     if test -e "$HOME/repos"; then
+        refuse_agent "~/repos" "$(realpath "$HOME/repos")"
         opts+=(-v "$HOME/repos:/repos:ro")
     fi
 elif test -n "$REPOS"; then
@@ -299,6 +317,7 @@ elif test -n "$REPOS"; then
         echo "error: refusing to mount / as REPOS" >&2
         exit 1
     fi
+    refuse_agent REPOS "$repos"
     opts+=(-v "$repos:/repos:ro")
 fi
 
@@ -322,6 +341,7 @@ if test -n "${NOTES:-}"; then
         echo "error: refusing to mount / as NOTES" >&2
         exit 1
     fi
+    refuse_agent NOTES "$notes"
     opts+=(-v "$notes:/notes")
 fi
 
