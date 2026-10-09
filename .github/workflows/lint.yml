@@ -43,3 +43,15 @@ jobs:
         run: |
           not_executable=$(git ls-files -s bin files/bin files/bin.host files/bin.ai files/docker-entrypoint | awk '$1 != "100755" { print $4 }')
           test -z "$not_executable" || { echo "not executable in git: $not_executable"; exit 1; }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # The linter checks a file by its extension; the node scripts have none.
+      - name: rules linter
+        run: |
+          dir=$(mktemp -d)
+          cp bin/usage "$dir/usage.cjs"
+          cp files/bin.ai/tts "$dir/tts.cjs"
+          npx -y vbarbarosh/rules "$dir"
