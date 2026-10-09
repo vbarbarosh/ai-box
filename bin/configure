@@ -8,9 +8,15 @@ script=`realpath $0`
 scriptdir=`dirname $script`
 scriptname=`basename $script`
 
+BLACK="\e[30m" RED="\e[31m" GREEN="\e[32m" YELLOW="\e[33m" BLUE="\e[34m"
+PURPLE="\e[35m" CYAN="\e[36m" WHITE="\e[37m" RESET="\e[0m"
+
+EXIT_MESSAGE="${RED}bin/configure failed${RESET}"
+trap 'echo -e "$EXIT_MESSAGE"' EXIT
+
 # Installs everything the host needs to run the box. Idempotent: every step
 # checks first, so re-running it is a no-op that reports what is already there.
-# `bin/missings` reports the same set without changing anything.
+# `bin/self-check` reports the same set without changing anything.
 #
 #   bin/configure            install what is missing
 #   bin/configure --dry-run  print what it would do, change nothing
@@ -38,8 +44,8 @@ if test "$(id -u)" -eq 0 && test -z "${SUDO_USER-}"; then
     exit 1
 fi
 
-# run <description> <command...>
-run () {
+# change <description> <command...>
+change () {
     local what=$1; shift
     if test -n "$dry"; then
         echo "  would: $what"
@@ -49,21 +55,6 @@ run () {
         "$@"
     fi
 }
-
-# Ask for the password once, up front, rather than letting it surface as
-# sudo's "a terminal is required to authenticate" in the middle of the run.
-if test -z "$dry" && test "$(id -u)" -ne 0; then
-    if ! sudo -n true 2>/dev/null; then
-        if test -t 0; then
-            echo "This needs sudo to install packages and load kernel modules."
-            sudo -v || exit 1
-        else
-            echo "error: needs sudo, and there is no terminal to authenticate on." >&2
-            echo "       Run it from a terminal, or pre-authenticate with 'sudo -v'." >&2
-            exit 1
-        fi
-    fi
-fi
 
 if ! command -v apt-get >/dev/null 2>&1; then
     echo "error: this script only knows apt. Install the equivalents of:" >&2
@@ -94,49 +85,30 @@ if dpkg --compare-versions "$podman_have" lt "$podman_min"; then
     exit 1
 fi
 
-echo
-echo "packages"
+# What the run will change, worked out before any of it: sudo is asked for
+# once, up front, and only when a step needs it; a short subordinate range
+# stops the run here, before apt.
 
 # passt provides pasta, the userspace network helper podman prefers; slirp4netns
 # is the older fallback and is small enough to keep as a spare. catatonit is
 # the init bin/run puts at PID 1 of the box. socat carries `commit`, `push`
 # and `pull` out of a GIT=commit box to the host.
-want=(podman uidmap crun passt slirp4netns catatonit socat)
-need=()
-for p in "${want[@]}"; do
-    if dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q '^install ok installed$'; then
-        echo "  present: $p"
-    else
-        need+=("$p")
+packages=(podman uidmap crun passt slirp4netns catatonit socat)
+packages_missing=()
+for package in "${packages[@]}"; do
+    if ! dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q '^install ok installed$'; then
+        packages_missing+=("$package")
     fi
 done
-
-if test "${#need[@]}" -gt 0; then
-    run "apt-get install: ${need[*]}" sudo apt-get install -y "${need[@]}"
-fi
-
-echo
-echo "kernel modules"
 
 # /dev/fuse is the inner overlay driver; /dev/net/tun is the inner network
 # uplink. Both are passed into the box, so both must exist on the host.
-for pair in "fuse /dev/fuse" "tun /dev/net/tun"; do
-    set -- $pair
-    mod=$1; dev=$2
-    if test -c "$dev"; then
-        echo "  present: $dev"
-    else
-        run "modprobe $mod" sudo modprobe "$mod"
-        # Survive a reboot.
-        if ! grep -qxs "$mod" /etc/modules-load.d/ai-box.conf; then
-            run "persist $mod across reboots" \
-                sudo tee -a /etc/modules-load.d/ai-box.conf <<<"$mod"
-        fi
-    fi
+modules=("fuse /dev/fuse" "tun /dev/net/tun")
+modules_missing=()
+for module in "${modules[@]}"; do
+    set -- $module
+    test -c "$2" || modules_missing+=("$module")
 done
-
-echo
-echo "subordinate ids"
 
 # The inner engine carves its own range out of this one. A range shorter than
 # 65536 is the setting that breaks nesting, with an opaque newuidmap error.
@@ -144,11 +116,11 @@ echo "subordinate ids"
 # to belong to whoever will actually run the box. Guarded above: bare root
 # never gets this far.
 me=${SUDO_USER:-$(id -un)}
-granted=
+subids_missing=()
 for f in /etc/subuid /etc/subgid; do
     n=$(awk -F: -v u="$me" '$1==u {print $3; exit}' "$f" 2>/dev/null || true)
     if test "${n:-0}" -ge 65536 2>/dev/null; then
-        echo "  present: $f has $n ids for $me"
+        continue
     elif test -n "${n:-}"; then
         echo "  $f gives $me only $n ids, and 65536 are needed." >&2
         echo "  Widen it by hand -- rewriting an existing range can collide" >&2
@@ -156,21 +128,78 @@ for f in /etc/subuid /etc/subgid; do
         echo "    sudo sed -i 's/^$me:.*/$me:100000:65536/' $f" >&2
         exit 1
     else
+        subids_missing+=("$f")
+    fi
+done
+
+# The password once, up front, and only when a step will need it; the later
+# calls are sudo -n, which fail at once rather than prompt halfway.
+changes_count=$(( ${#packages_missing[@]} + ${#modules_missing[@]} + ${#subids_missing[@]} ))
+if test -z "$dry" && test "$changes_count" -gt 0 && test "$(id -u)" -ne 0; then
+    if ! sudo -n true 2>/dev/null; then
+        if test -t 0; then
+            echo "This needs sudo to install packages and load kernel modules."
+            sudo -v || exit 1
+        else
+            echo "error: needs sudo, and there is no terminal to authenticate on." >&2
+            echo "       Run it from a terminal, or pre-authenticate with 'sudo -v'." >&2
+            exit 1
+        fi
+    fi
+fi
+
+echo
+echo "packages"
+for package in "${packages[@]}"; do
+    case " ${packages_missing[*]} " in
+        *" $package "*) ;;
+        *) echo "  present: $package" ;;
+    esac
+done
+if test "${#packages_missing[@]}" -gt 0; then
+    change "apt-get install: ${packages_missing[*]}" sudo -n apt-get install -y "${packages_missing[@]}"
+fi
+
+echo
+echo "kernel modules"
+for module in "${modules[@]}"; do
+    set -- $module
+    mod=$1; dev=$2
+    if test -c "$dev"; then
+        echo "  present: $dev"
+    else
+        change "modprobe $mod" sudo -n modprobe "$mod"
+        # Survive a reboot.
+        if ! grep -qxs "$mod" /etc/modules-load.d/ai-box.conf; then
+            change "persist $mod across reboots" \
+                sudo -n tee -a /etc/modules-load.d/ai-box.conf <<<"$mod"
+        fi
+    fi
+done
+
+echo
+echo "subordinate ids"
+granted=
+for f in /etc/subuid /etc/subgid; do
+    n=$(awk -F: -v u="$me" '$1==u {print $3; exit}' "$f" 2>/dev/null || true)
+    if test "${n:-0}" -ge 65536 2>/dev/null; then
+        echo "  present: $f has $n ids for $me"
+    else
         # The first free block above every range already in the file, the way
         # useradd picks one. The first account on an Ubuntu install already
         # owns 100000-165535; handing a second account the same block would
         # let each one's containers read and write the other's files.
-        start=$(awk -F: '{ e = $2 + $3; if (e > m) m = e } END { print (m > 100000 ? m : 100000) }' "$f" 2>/dev/null || echo 100000)
-        end=$((start + 65535))
+        first=$(awk -F: '{ e = $2 + $3; if (e > m) m = e } END { print (m > 100000 ? m : 100000) }' "$f" 2>/dev/null || echo 100000)
+        last=$((first + 65535))
         case "$f" in
-            /etc/subuid) run "grant $me subuids $start-$end" sudo usermod --add-subuids "$start-$end" "$me" ;;
-            /etc/subgid) run "grant $me subgids $start-$end" sudo usermod --add-subgids "$start-$end" "$me" ;;
+            /etc/subuid) change "grant $me subuids $first-$last" sudo -n usermod --add-subuids "$first-$last" "$me" ;;
+            /etc/subgid) change "grant $me subgids $first-$last" sudo -n usermod --add-subgids "$first-$last" "$me" ;;
         esac
         granted=1
     fi
 done
 if test -n "$granted"; then
-    run "reload podman's view of the new range" sudo -u "$me" podman system migrate
+    change "reload podman's view of the new range" sudo -n -u "$me" podman system migrate
 fi
 
 echo
@@ -178,5 +207,7 @@ if test -n "$dry"; then
     echo "dry run: nothing changed"
 else
     echo "done -- checking:"
-    exec "$scriptdir/missings"
+    "$scriptdir/self-check"
 fi
+
+EXIT_MESSAGE="${GREEN}bin/configure succeeded${RESET}"

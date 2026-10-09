@@ -8,13 +8,19 @@ script=`realpath $0`
 scriptdir=`dirname $script`
 scriptname=`basename $script`
 
+BLACK="\e[30m" RED="\e[31m" GREEN="\e[32m" YELLOW="\e[33m" BLUE="\e[34m"
+PURPLE="\e[35m" CYAN="\e[36m" WHITE="\e[37m" RESET="\e[0m"
+
+EXIT_MESSAGE="${RED}bin/self-check failed${RESET}"
+trap 'echo -e "$EXIT_MESSAGE"' EXIT
+
 # Reports what the host has and what it lacks. Exits non-zero if anything
 # required is missing, so it can gate a build in CI. `bin/configure` installs
 # whatever this reports.
 #
-#   bin/missings            checks the host
-#   bin/missings --deep     also starts the box and runs a container inside it
-#   bin/missings --versions also lists what the image was built with
+#   bin/self-check            checks the host
+#   bin/self-check --deep     also starts the box and runs a container inside it
+#   bin/self-check --versions also lists what the image was built with
 
 deep=
 versions=
@@ -40,13 +46,21 @@ short="${data/#$HOME/\~}"
 missing_required=0
 missing_optional=0
 
-# ok <label> <detail>
-ok () {
+format_bytes () {
+    awk -v b="$1" 'BEGIN {
+        split("B KB MB GB TB", u, " "); i = 1
+        while (b >= 1024 && i < 5) { b /= 1024; i++ }
+        printf "%.1f %s", b, u[i]
+    }'
+}
+
+# report_ok <label> <detail>
+report_ok () {
     printf '  %s%-9s%s %-26s %s\n' "$green" ok "$reset" "$1" "${2-}"
 }
 
-# bad <required|optional> <label> <how to fix>
-bad () {
+# report_missing <required|optional> <label> <how to fix>
+report_missing () {
     if test "$1" = required; then
         missing_required=$((missing_required + 1))
         printf '  %s%-9s%s %-26s %s%s%s\n' "$red" MISSING "$reset" "$2" "$dim" "${3-}" "$reset"
@@ -56,95 +70,95 @@ bad () {
     fi
 }
 
-# have <binary> <label> <package>
-have () {
+# check_binary <binary> <label> <package>
+check_binary () {
     if command -v "$1" >/dev/null 2>&1; then
         v=$($1 --version 2>/dev/null | head -1 | cut -c1-40 || true)
-        ok "$2" "${v:-present at $(command -v "$1")}"
+        report_ok "$2" "${v:-present at $(command -v "$1")}"
     else
-        bad required "$2" "bin/configure  (apt: $3)"
+        report_missing required "$2" "bin/configure  (apt: $3)"
     fi
 }
 
 echo
 echo "host tools"
-have podman    podman    podman
+check_binary podman    podman    podman
 # bin/run's --userns=keep-id:uid=1000,gid=1000 needs 4.3; Ubuntu 22.04 has 3.4.4.
 podman_have=$(podman --version 2>/dev/null | awk '{print $3}')
 if test -n "$podman_have" && dpkg --compare-versions "$podman_have" lt 4.3 2>/dev/null; then
-    bad required "podman 4.3" "$podman_have here; upgrade to Ubuntu 24.04"
+    report_missing required "podman 4.3" "$podman_have here; upgrade to Ubuntu 24.04"
 fi
-have crun      crun      crun
-have newuidmap newuidmap uidmap
+check_binary crun      crun      crun
+check_binary newuidmap newuidmap uidmap
 
 # bin/run puts it at PID 1 of the box (--init) whenever it is here; without it
 # the box still runs, with bash reaping nothing.
 if test -x /usr/libexec/podman/catatonit || command -v catatonit >/dev/null 2>&1; then
-    ok "catatonit" "init for the box"
+    report_ok "catatonit" "init for the box"
 else
-    bad optional "catatonit" "bin/configure  (apt: catatonit)"
+    report_missing optional "catatonit" "bin/configure  (apt: catatonit)"
 fi
 
 # The relays `commit`, `push` and `pull` inside a GIT=commit box talk to;
 # without it bin/run refuses GIT=commit.
 if command -v socat >/dev/null 2>&1; then
-    ok "socat" "commit, push, pull: GIT=commit"
+    report_ok "socat" "commit, push, pull: GIT=commit"
 else
-    bad optional "socat" "bin/configure  (apt: socat)"
+    report_missing optional "socat" "bin/configure  (apt: socat)"
 fi
 
 if command -v pasta >/dev/null 2>&1; then
-    ok "pasta" "$(pasta --version 2>/dev/null | head -1 | cut -c1-40)"
+    report_ok "pasta" "$(pasta --version 2>/dev/null | head -1 | cut -c1-40)"
 elif command -v slirp4netns >/dev/null 2>&1; then
-    ok "slirp4netns" "$(slirp4netns --version 2>/dev/null | head -1 | cut -c1-40)"
+    report_ok "slirp4netns" "$(slirp4netns --version 2>/dev/null | head -1 | cut -c1-40)"
 else
-    bad required "pasta/slirp4netns" "bin/configure  (apt: passt)"
+    report_missing required "pasta/slirp4netns" "bin/configure  (apt: passt)"
 fi
 
 echo
 echo "kernel"
 if test -c /dev/fuse; then
-    ok "/dev/fuse" "inner overlay driver"
+    report_ok "/dev/fuse" "inner overlay driver"
 else
-    bad required "/dev/fuse" "modprobe fuse"
+    report_missing required "/dev/fuse" "modprobe fuse"
 fi
 
 if test -c /dev/net/tun; then
-    ok "/dev/net/tun" "inner network uplink"
+    report_ok "/dev/net/tun" "inner network uplink"
 else
-    bad required "/dev/net/tun" "modprobe tun"
+    report_missing required "/dev/net/tun" "modprobe tun"
 fi
 
 if test "$(stat -fc %T /sys/fs/cgroup)" = cgroup2fs; then
-    ok "cgroup v2" ""
+    report_ok "cgroup v2" ""
 else
-    bad required "cgroup v2" "boot with systemd.unified_cgroup_hierarchy=1"
+    report_missing required "cgroup v2" "boot with systemd.unified_cgroup_hierarchy=1"
 fi
 
 userns=$(cat /proc/sys/user/max_user_namespaces 2>/dev/null || echo 0)
 if test "$userns" -gt 0; then
-    ok "user namespaces" "max $userns"
+    report_ok "user namespaces" "max $userns"
 else
-    bad required "user namespaces" "sysctl user.max_user_namespaces=15000"
+    report_missing required "user namespaces" "sysctl user.max_user_namespaces=15000"
 fi
 
 # bin/run limits the box (--pids-limit, --memory, --cpus) only through the
 # controllers systemd delegates to this session. Missing ones mean the box
 # runs uncapped, not that it fails.
 controllers=$(cat "/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/cgroup.controllers" 2>/dev/null || true)
-have_ctl=; lack_ctl=
-for c in pids memory cpu; do
+controllers_delegated=; controllers_missing=
+for controller in pids memory cpu; do
     case " $controllers " in
-        *" $c "*) have_ctl="$have_ctl $c" ;;
-        *)        lack_ctl="$lack_ctl $c" ;;
+        *" $controller "*) controllers_delegated="$controllers_delegated $controller" ;;
+        *)                 controllers_missing="$controllers_missing $controller" ;;
     esac
 done
-if test -z "$lack_ctl"; then
-    ok "cgroup delegation" "pids memory cpu"
-elif test -n "$have_ctl"; then
-    bad optional "cgroup delegation" "have${have_ctl}; box runs without${lack_ctl} limit"
+if test -z "$controllers_missing"; then
+    report_ok "cgroup delegation" "pids memory cpu"
+elif test -n "$controllers_delegated"; then
+    report_missing optional "cgroup delegation" "have${controllers_delegated}; box runs without${controllers_missing} limit"
 else
-    bad optional "cgroup delegation" "none; box runs with no limits (needs a systemd user session)"
+    report_missing optional "cgroup delegation" "none; box runs with no limits (needs a systemd user session)"
 fi
 
 echo
@@ -160,9 +174,9 @@ fi
 for f in /etc/subuid /etc/subgid; do
     n=$(awk -F: -v u="$me" '$1==u {print $3; exit}' "$f" 2>/dev/null || true)
     if test "${n:-0}" -ge 65536 2>/dev/null; then
-        ok "$f" "$n ids"
+        report_ok "$f" "$n ids"
     else
-        bad required "$f" "bin/configure  (have ${n:-0}, need 65536)"
+        report_missing required "$f" "bin/configure  (have ${n:-0}, need 65536)"
     fi
 done
 
@@ -184,19 +198,19 @@ echo "host storage"
 driver=$(podman info --format '{{.Store.GraphDriverName}}' 2>/dev/null || echo unknown)
 native=$(podman info --format '{{index .Store.GraphStatus "Native Overlay Diff"}}' 2>/dev/null || echo "")
 if test "$driver" = overlay && test "$native" = true; then
-    ok "graph driver" "native overlay (podman $(podman --version 2>/dev/null | awk '{print $3}'))"
+    report_ok "graph driver" "native overlay (podman $(podman --version 2>/dev/null | awk '{print $3}'))"
     printf '  %s%-9s%s %-26s %s%s%s\n' "$dim" "" "$reset" "" "$dim" \
         "if bin/build's warming step is slow, that is the layer copy; it" "$reset"
     printf '  %s%-9s%s %-26s %s%s%s\n' "$dim" "" "$reset" "" "$dim" \
         "runs after any non-cached build; fuse-overlayfs is not a fix" "$reset"
 else
-    ok "graph driver" "$driver${native:+ (native diff: $native)}"
+    report_ok "graph driver" "$driver${native:+ (native diff: $native)}"
 fi
 
 echo
 echo "image"
 if podman image exists ai-box 2>/dev/null; then
-    ok "ai-box" "$(podman image inspect ai-box --format '{{.Size}}' 2>/dev/null | awk '{printf "%.1f GB", $1/1000000000}')"
+    report_ok "ai-box" "$(format_bytes "$(podman image inspect ai-box --format '{{.Size}}' 2>/dev/null || echo 0)")"
     # What the build resolved: every component the Dockerfile fetches at its
     # current version is recorded there, one name=version per line. No
     # --userns here, so this never triggers the id-mapped layer copy.
@@ -205,49 +219,49 @@ if podman image exists ai-box 2>/dev/null; then
         if test -n "$versions"; then
             echo "$manifest" | sed "s/^/  ${dim}          /; s/\$/${reset}/"
         else
-            ok "versions" "$(echo "$manifest" | wc -l) recorded (--versions to list)"
+            report_ok "versions" "$(echo "$manifest" | wc -l) recorded (--versions to list)"
         fi
     fi
 else
-    bad optional "ai-box" "bin/build"
+    report_missing optional "ai-box" "bin/build"
 fi
 
 # What the image leaves out -- browsers, whisper model, Chrome, agent CLIs --
 # is in data/extras, with its own versions file in the same format.
 if test -f "$data/extras/versions"; then
     if test -n "$versions"; then
-        ok "extras" "$short/extras, $(du -sh "$data/extras" 2>/dev/null | cut -f1)"
+        report_ok "extras" "$short/extras, $(du -sh "$data/extras" 2>/dev/null | cut -f1)"
         sed "s/^/  ${dim}          /; s/\$/${reset}/" "$data/extras/versions"
     else
-        ok "extras" "$short/extras, $(wc -l < "$data/extras/versions") recorded"
+        report_ok "extras" "$short/extras, $(wc -l < "$data/extras/versions") recorded"
     fi
 else
-    bad optional "extras" "bin/build; bin/run needs it"
+    report_missing optional "extras" "bin/build; bin/run needs it"
 fi
 
 if test -d "$data/images"; then
-    ok "shared image store" "$(podman --root "$data/images" --storage-driver overlay images -q 2>/dev/null | wc -l) images"
+    report_ok "shared image store" "$(podman --root "$data/images" --storage-driver overlay images -q 2>/dev/null | wc -l) images"
 else
-    bad optional "shared image store" "podman --root $short/images pull alpine:latest"
+    report_missing optional "shared image store" "podman --root $short/images pull alpine:latest"
 fi
 
 echo
 # Agent state, all under $short, undotted here and dotted inside the box.
 # Named by leaf so the columns stay aligned.
 echo "mounts bin/run will make ${dim}(box state under $short)${reset}"
-if test -d "$data/claude";      then ok "claude"      "agent state, rw";   else bad optional "claude"      "created on first run"; fi
-if test -f "$data/claude.json"; then ok "claude.json" "agent config, rw";  else bad optional "claude.json" "created on first run"; fi
-if test -d "$data/codex";       then ok "codex"       "agent state, rw";   else bad optional "codex"       "created on first run"; fi
-if test -f "$data/codex.json";  then ok "codex.json"  "agent config, rw";  else bad optional "codex.json"  "created on first run"; fi
+if test -d "$data/claude";      then report_ok "claude"      "agent state, rw";   else report_missing optional "claude"      "created on first run"; fi
+if test -f "$data/claude.json"; then report_ok "claude.json" "agent config, rw";  else report_missing optional "claude.json" "created on first run"; fi
+if test -d "$data/codex";       then report_ok "codex"       "agent state, rw";   else report_missing optional "codex"       "created on first run"; fi
+if test -f "$data/codex.json";  then report_ok "codex.json"  "agent config, rw";  else report_missing optional "codex.json"  "created on first run"; fi
 # shellcheck disable=SC2088  # the tilde is a label, not a path
 if test -z "${REPOS+set}"; then
-    if test -d "$HOME/repos";    then ok '~/repos'      "/repos, read-only"; else bad optional '~/repos'      "mkdir it, or set REPOS, to mount it"; fi
+    if test -d "$HOME/repos";    then report_ok '~/repos'      "/repos, read-only"; else report_missing optional '~/repos'      "mkdir it, or set REPOS, to mount it"; fi
 elif test -z "$REPOS"; then
-    ok 'REPOS'       "empty: no /repos"
+    report_ok 'REPOS'       "empty: no /repos"
 elif test -d "$REPOS"; then
-    ok 'REPOS'       "$REPOS as /repos, read-only"
+    report_ok 'REPOS'       "$REPOS as /repos, read-only"
 else
-    bad required 'REPOS'       "not a directory: $REPOS"
+    report_missing required 'REPOS'       "not a directory: $REPOS"
 fi
 
 # Stale container records naming a runtime that is no longer installed make
@@ -266,24 +280,24 @@ if test -n "$deep"; then
     if podman image exists ai-box 2>/dev/null; then
         # stdin is redirected, so bin/run asks for no tty and the output has
         # no \r\n; the tr stays for a bin/run invoked some other way.
-        if out=$("$scriptdir/run" docker run --rm alpine echo nested-ok 2>&1 </dev/null | tr -d '\r' | tail -1) \
-           && test "$out" = nested-ok; then
-            ok "container inside box" "docker run works"
+        if nested_line=$("$scriptdir/run" docker run --rm alpine echo nested-ok 2>&1 </dev/null | tr -d '\r' | tail -1) \
+            && test "$nested_line" = nested-ok; then
+            report_ok "container inside box" "docker run works"
         else
-            bad required "container inside box" "$out"
+            report_missing required "container inside box" "$nested_line"
         fi
     else
-        bad optional "container inside box" "no image yet; bin/build"
+        report_missing optional "container inside box" "no image yet; bin/build"
     fi
 fi
 
 echo
 if test "$missing_required" -gt 0; then
-    echo "${red}$missing_required required item(s) missing${reset} -- run bin/configure"
+    EXIT_MESSAGE="${RED}bin/self-check failed: $missing_required required item(s) missing${RESET} -- run bin/configure"
     exit 1
 fi
 if test "$missing_optional" -gt 0; then
-    echo "${green}host is ready${reset} ${dim}($missing_optional optional item(s) absent)${reset}"
+    EXIT_MESSAGE="${GREEN}bin/self-check succeeded: host is ready${RESET} ($missing_optional optional item(s) absent)"
 else
-    echo "${green}host is ready${reset}"
+    EXIT_MESSAGE="${GREEN}bin/self-check succeeded: host is ready${RESET}"
 fi

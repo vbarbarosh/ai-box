@@ -16,7 +16,7 @@ scriptname=`basename $script`
 
 sock=/run/git/commit.sock
 
-usage () {
+usage_print () {
     echo "usage: $scriptname <file.patch>                 a git format-patch email: its message is used" >&2
     echo "       $scriptname -m <message> <file.patch>    a plain diff; - reads it from stdin" >&2
     echo "       $scriptname -m <message> <path>...       the patch is made here from these files" >&2
@@ -28,18 +28,18 @@ args=()
 while test $# -gt 0; do
     case "$1" in
         -m)
-            test $# -ge 2 || { usage; exit 1; }
+            test $# -ge 2 || { usage_print; exit 1; }
             message="${message:+$message$'\n\n'}$2"
             shift 2 ;;
-        -h|--help) usage; exit 0 ;;
+        -h|--help) usage_print; exit 0 ;;
         --) shift; args+=("$@"); break ;;
         -) args+=("$1"); shift ;;
-        -*) echo "$scriptname: unknown option $1" >&2; usage; exit 1 ;;
+        -*) echo "$scriptname: unknown option $1" >&2; usage_print; exit 1 ;;
         *) args+=("$1"); shift ;;
     esac
 done
 if test "${#args[@]}" -eq 0; then
-    usage
+    usage_print
     exit 1
 fi
 
@@ -48,45 +48,45 @@ if ! test -S "$sock"; then
     exit 1
 fi
 
-tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+tempdir=$(mktemp -d)
+trap 'rm -rf "$tempdir"' EXIT
 
-one=${args[0]}
-if test "${#args[@]}" -eq 1 && { test "$one" = - || case "$one" in *.patch|*.diff) true ;; *) false ;; esac; }; then
-    if test "$one" = -; then
-        cat > "$tmp/patch"
+first_arg=${args[0]}
+if test "${#args[@]}" -eq 1 && { test "$first_arg" = - || case "$first_arg" in *.patch|*.diff) true ;; *) false ;; esac; }; then
+    if test "$first_arg" = -; then
+        cat > "$tempdir/patch"
     else
-        cp -- "$one" "$tmp/patch"
+        cp -- "$first_arg" "$tempdir/patch"
     fi
     # A format-patch email carries its own message; git mailinfo splits it off.
-    if test -z "$message" && grep -q '^Subject: ' "$tmp/patch"; then
-        git mailinfo "$tmp/msg" "$tmp/diff" < "$tmp/patch" > "$tmp/info"
-        message=$(sed -n 's/^Subject: //p' "$tmp/info")
-        if test -s "$tmp/msg"; then
-            message="$message"$'\n\n'"$(cat "$tmp/msg")"
+    if test -z "$message" && grep -q '^Subject: ' "$tempdir/patch"; then
+        git mailinfo "$tempdir/msg" "$tempdir/diff" < "$tempdir/patch" > "$tempdir/info"
+        message=$(sed -n 's/^Subject: //p' "$tempdir/info")
+        if test -s "$tempdir/msg"; then
+            message="$message"$'\n\n'"$(cat "$tempdir/msg")"
         fi
-        mv "$tmp/diff" "$tmp/patch"
+        mv "$tempdir/diff" "$tempdir/patch"
     fi
 else
     # Paths, from wherever the agent is, made relative to the top of /app.
     cd /app
-    for p in "${args[@]}"; do
-        r=$(realpath -m -s --relative-to=/app -- "$OLDPWD/$p")
-        case "$p" in /*) r=$(realpath -m -s --relative-to=/app -- "$p") ;; esac
-        case "$r" in
-            ..|../*) echo "$scriptname: $p is outside /app" >&2; exit 1 ;;
+    for arg in "${args[@]}"; do
+        relative=$(realpath -m -s --relative-to=/app -- "$OLDPWD/$arg")
+        case "$arg" in /*) relative=$(realpath -m -s --relative-to=/app -- "$arg") ;; esac
+        case "$relative" in
+            ..|../*) echo "$scriptname: $arg is outside /app" >&2; exit 1 ;;
         esac
-        if test -c "$r"; then
+        if test -c "$relative"; then
             # bin/run masks secrets with /dev/null; the box never sees them.
-            echo "$scriptname: $p is hidden from the box; the author commits it" >&2
+            echo "$scriptname: $arg is hidden from the box; the author commits it" >&2
             exit 1
-        elif git cat-file -e "HEAD:$r" 2>/dev/null; then
-            git diff --binary --no-ext-diff --src-prefix=a/ --dst-prefix=b/ HEAD -- "$r" >> "$tmp/patch"
-        elif test -e "$r"; then
+        elif git cat-file -e "HEAD:$relative" 2>/dev/null; then
+            git diff --binary --no-ext-diff --src-prefix=a/ --dst-prefix=b/ HEAD -- "$relative" >> "$tempdir/patch"
+        elif test -e "$relative"; then
             # Untracked: --no-index exits 1 when the files differ, which is the point.
-            git diff --binary --no-ext-diff --src-prefix=a/ --dst-prefix=b/ --no-index /dev/null "$r" >> "$tmp/patch" || test $? = 1
+            git diff --binary --no-ext-diff --src-prefix=a/ --dst-prefix=b/ --no-index /dev/null "$relative" >> "$tempdir/patch" || test $? = 1
         else
-            echo "$scriptname: $p: no such file, and not in HEAD" >&2
+            echo "$scriptname: $arg: no such file, and not in HEAD" >&2
             exit 1
         fi
     done
@@ -96,7 +96,7 @@ if test -z "$message"; then
     echo "$scriptname: no message: give -m, or a format-patch email" >&2
     exit 1
 fi
-if ! test -s "$tmp/patch"; then
+if ! test -s "$tempdir/patch"; then
     echo "$scriptname: nothing to commit: the patch is empty" >&2
     exit 1
 fi
@@ -109,7 +109,7 @@ while IFS= read -r line || test -n "$line"; do
         "commit: exit "*) status=${line#"commit: exit "} ;;
         *) printf '%s\n' "$line" ;;
     esac
-done < <({ printf '%s\0' "$message"; cat "$tmp/patch"; } | socat -t 3600 - "UNIX-CONNECT:$sock")
+done < <({ printf '%s\0' "$message"; cat "$tempdir/patch"; } | socat -t 3600 - "UNIX-CONNECT:$sock")
 if test -z "$status"; then
     echo "$scriptname: the host did not finish; check git log before trying again" >&2
     exit 1

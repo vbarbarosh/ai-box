@@ -8,6 +8,11 @@ script=`realpath $0`
 scriptdir=`dirname $script`
 scriptname=`basename $script`
 
+BLACK="\e[30m" RED="\e[31m" GREEN="\e[32m" YELLOW="\e[33m" BLUE="\e[34m"
+PURPLE="\e[35m" CYAN="\e[36m" WHITE="\e[37m" RESET="\e[0m"
+
+EXIT_MESSAGE="${RED}bin/images failed${RESET}"
+
 # The shared image store: what `docker run <image>` finds inside the box with
 # no pull and no network.
 #
@@ -24,7 +29,7 @@ scriptname=`basename $script`
 # only the image, already pulled.
 
 data="$(dirname "$scriptdir")/data/images"
-store=(--root "$data" --storage-driver overlay)
+store_opts=(--root "$data" --storage-driver overlay)
 
 # Root would write a store the box cannot read: it reads it as you.
 test "$(id -u)" -ne 0 || { echo "error: run as the user who runs the box." >&2; exit 1; }
@@ -33,32 +38,43 @@ test "$(id -u)" -ne 0 || { echo "error: run as the user who runs the box." >&2; 
 # and then refuses every other path -- which is what happens when the repo
 # moves, or when the box opens the same files as /var/lib/shared. Nothing an
 # image store needs is in there, so it goes after every run.
-trap 'rm -rf "$data/db.sql" "$data/libpod"' EXIT
+trap 'rm -rf "$data/db.sql" "$data/libpod"; echo -e "$EXIT_MESSAGE"' EXIT
 
 # mysql:8.0 -> docker.io/library/mysql:8.0, so the stored name is the name the
 # box looks for; short names resolve through a different registries.conf there.
-qualify () {
+ref_from_image () {
     case "$1" in
         */*) case "${1%%/*}" in *.*|*:*) echo "$1" ;; *) echo "docker.io/$1" ;; esac ;;
         *)   echo "docker.io/library/$1" ;;
     esac
 }
 
-remove=
+removal=
 case "${1:-}" in
-    --remove|-r) remove=1; shift ;;
+    --remove|-r) removal=1; shift ;;
     -*)          echo "usage: $scriptname [--remove] [image...]" >&2; exit 1 ;;
 esac
 
 if test $# -eq 0; then
-    test -d "$data" || { echo "no store yet at $data"; exit 0; }
-    podman "${store[@]}" images
-    echo
-    echo "$(du -sh "$data" | cut -f1) in $data"
+    if test -d "$data"; then
+        podman "${store_opts[@]}" images
+        echo
+        echo "$(du -sh "$data" | cut -f1) in $data"
+    else
+        echo "no store yet at $data"
+    fi
+    EXIT_MESSAGE="${GREEN}bin/images succeeded${RESET}"
     exit 0
 fi
 
+# A failed rmi stops here; it never falls through to a pull of the same image.
 for image in "$@"; do
-    ref=$(qualify "$image")
-    test -n "$remove" && podman "${store[@]}" rmi "$ref" || podman "${store[@]}" pull "$ref"
+    ref=$(ref_from_image "$image")
+    if test -n "$removal"; then
+        podman "${store_opts[@]}" rmi "$ref"
+    else
+        podman "${store_opts[@]}" pull "$ref"
+    fi
 done
+
+EXIT_MESSAGE="${GREEN}bin/images succeeded${RESET}"

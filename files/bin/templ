@@ -22,10 +22,21 @@ script=`realpath $0`
 scriptdir=`dirname $script`
 scriptname=`basename $script`
 
-# A scratch directory that cleans itself up.
-# Drop this block if the script has nothing to write.
+BLACK="\e[30m" RED="\e[31m" GREEN="\e[32m" YELLOW="\e[33m" BLUE="\e[34m"
+PURPLE="\e[35m" CYAN="\e[36m" WHITE="\e[37m" RESET="\e[0m"
+
+EXIT_MESSAGE="${RED}bin/templ failed${RESET}"
+
 # http://redsymbol.net/articles/bash-exit-traps/
+# http://redsymbol.net/articles/unofficial-bash-strict-mode/#essential-cleanup
 tempdir=`mktemp -d -t tmp.XXXXXXXXXX`
-trap "rm -rf $tempdir" EXIT
+trap 'rm -rf $tempdir; echo -e "$EXIT_MESSAGE"' EXIT
 cd $tempdir
+
+echo script=$script
+echo scriptdir=$scriptdir
+echo scriptname=$scriptname
+echo tempdir=$tempdir
+
+EXIT_MESSAGE="${GREEN}bin/templ succeeded${RESET}"
 EOF

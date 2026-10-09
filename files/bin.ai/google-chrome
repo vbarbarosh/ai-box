@@ -4,6 +4,10 @@
 # http://redsymbol.net/articles/unofficial-bash-strict-mode
 set -o nounset -o errexit -o pipefail
 
+script=`realpath $0`
+scriptdir=`dirname $script`
+scriptname=`basename $script`
+
 # Chrome's files are not in the image: extras-fill unpacks them into
 # data/extras/chrome on the host, which bin/run mounts at /opt/extras, and
 # /opt/google/chrome links there. Say so when it has none, instead of

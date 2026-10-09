@@ -17,10 +17,7 @@ const {MsEdgeTTS, OUTPUT_FORMAT} = require('msedge-tts');
 const DEFAULT_VOICE = 'en-US-AndrewMultilingualNeural';
 const USAGE = 'usage: tts [--voice NAME] <out.mp3> <text|-> ; tts --list';
 
-main().catch(err => {
-    console.error(`tts: ${err.message}`);
-    process.exit(1);
-});
+cli(main);
 
 async function main()
 {
@@ -29,7 +26,9 @@ async function main()
 
     if (args.list) {
         const voices = await tts.getVoices();
-        voices.forEach(v => console.log(`${v.ShortName}\t${v.Gender}\t${v.Locale}`));
+        for (const voice of voices) {
+            console.log(`${voice.ShortName}\t${voice.Gender}\t${voice.Locale}`);
+        }
         return;
     }
 
@@ -53,12 +52,13 @@ async function main()
         fs.rmSync(stage, {recursive: true, force: true});
     }
 
-    console.log(duration_sec(args.out).toFixed(2));
+    const duration = duration_from_mp3(args.out);
+    console.log(duration.toFixed(2));
 }
 
 // The mp3 is constant bitrate, so its length is size over rate - reading it
 // costs nothing and keeps ffprobe out of the caller's loop.
-function duration_sec(file)
+function duration_from_mp3(file)
 {
     const bytes_per_sec = 48000/8;
     return fs.statSync(file).size/bytes_per_sec;
@@ -68,12 +68,11 @@ function parse_args(argv)
 {
     const out = {voice: DEFAULT_VOICE, list: false, out: null, text: null};
     const rest = [];
-    for (let i = 0; i < argv.length; i++) {
+    for (let i = 0, end = argv.length; i < end; ++i) {
         switch (argv[i]) {
         case '--voice':
-            if (i + 1 >= argv.length) {
-                console.error(USAGE);
-                process.exit(2);
+            if (i + 1 >= end) {
+                throw new Error(USAGE);
             }
             out.voice = argv[++i];
             break;
@@ -93,10 +92,28 @@ function parse_args(argv)
         return out;
     }
     if (rest.length < 2) {
-        console.error(USAGE);
-        process.exit(2);
+        throw new Error(USAGE);
     }
     out.out = rest[0];
     out.text = rest.slice(1).join(' ');
     return out;
+}
+
+/*
+ * The process contract of @vbarbarosh/node-helpers/src/cli, kept in the file
+ * as bin/usage keeps it: the image has no node-helpers to require.
+ */
+function cli(main)
+{
+    const timer = setInterval(v => v, 1E9);
+    Promise.try(main).then(resolve, reject);
+
+    function resolve() {
+        clearInterval(timer);
+    }
+    function reject(error) {
+        clearInterval(timer);
+        console.error(`tts: ${error.message}`);
+        process.exit(1);
+    }
 }

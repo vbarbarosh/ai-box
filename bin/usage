@@ -20,7 +20,7 @@ const data = path.join(path.dirname(__dirname), 'data');
 const usage_config = {
     claude_credentials_file: path.join(data, 'claude', '.credentials.json'),
     codex_auth_file: path.join(data, 'codex', 'auth.json'),
-    display_utc_offset_hours: 3,
+    display_time_zone: 'Europe/Chisinau',
     bar_width: 30,
 };
 const usage_column_gap = '   │   ';
@@ -34,9 +34,7 @@ async function main()
     console.log('✅ Credentials loaded.\n');
 
     const usage_results = await Promise.allSettled([
-        usage_fetch_with_logs('Claude', '🟠', function () {
-            return claude_usage_fetch(credentials.claude_access_token);
-        }),
+        usage_fetch_with_logs('Claude', '🟠', () => claude_usage_fetch(credentials.claude_access_token)),
         usage_fetch_with_logs('GPT', '🟢', function () {
             return gpt_usage_fetch(
                 credentials.chatgpt_access_token,
@@ -47,15 +45,15 @@ async function main()
     const claude_result = usage_results[0];
     const gpt_result = usage_results[1];
     console.log('\n📋 Usage data ready. Building table...\n');
-    const claude_blocks = claude_result.status === 'fulfilled'
+    const claude_blocks = (claude_result.status === 'fulfilled')
         ? usage_blocks_from_claude_usage(claude_result.value)
         : usage_error_blocks_from_reason('Claude', 'claude', claude_result.reason);
-    const gpt_blocks = gpt_result.status === 'fulfilled'
+    const gpt_blocks = (gpt_result.status === 'fulfilled')
         ? usage_blocks_from_gpt_usage(gpt_result.value)
         : usage_error_blocks_from_reason('GPT', 'codex', gpt_result.reason);
 
     usage_columns_print(claude_blocks, gpt_blocks);
-    if (claude_result.status === 'rejected' || gpt_result.status === 'rejected') {
+    if ((claude_result.status === 'rejected') || (gpt_result.status === 'rejected')) {
         process.exitCode = 1;
     }
 }
@@ -82,10 +80,8 @@ function usage_json_file_load(filename, agent)
     }
     catch (error) {
         if (error.code === 'ENOENT') {
-            throw new Error(
-                `${filename} does not exist: the box has no ${agent} login yet.`
-                + ` Open it with \`bin/run ${agent}\` and log in.`,
-            );
+            const hint = `Open it with \`bin/run ${agent}\` and log in.`;
+            throw new Error(`${filename} does not exist: the box has no ${agent} login yet. ${hint}`);
         }
         throw new Error(`Could not read ${filename}: ${error.message}`);
     }
@@ -102,54 +98,54 @@ function usage_credentials_load()
 {
     const claude_credentials = usage_json_file_load(usage_config.claude_credentials_file, 'claude');
     const codex_auth = usage_json_file_load(usage_config.codex_auth_file, 'codex');
-    const credentials = {
+    const out = {
         claude_access_token: claude_credentials.claudeAiOauth?.accessToken,
         chatgpt_access_token: codex_auth.tokens?.access_token,
         chatgpt_account_id: codex_auth.tokens?.account_id,
     };
 
-    if (!credentials.claude_access_token) {
+    if (!out.claude_access_token) {
         throw new Error(
             `Missing claudeAiOauth.accessToken in ${usage_config.claude_credentials_file}.`,
         );
     }
-    if (!credentials.chatgpt_access_token) {
+    if (!out.chatgpt_access_token) {
         throw new Error(`Missing tokens.access_token in ${usage_config.codex_auth_file}.`);
     }
-    if (!credentials.chatgpt_account_id) {
+    if (!out.chatgpt_account_id) {
         throw new Error(`Missing tokens.account_id in ${usage_config.codex_auth_file}.`);
     }
-    return credentials;
+    return out;
 }
 
 function usage_request_json(hostname, path, headers)
 {
     return new Promise(function (resolve, reject) {
-        const req = https.get({hostname, path, headers, timeout: 30_000}, function (res) {
+        const request = https.get({hostname, path, headers, timeout: 30_000}, function (response) {
             let body = '';
-            res.setEncoding('utf8');
-            res.on('data', function (chunk) {
+            response.setEncoding('utf8');
+            response.on('data', function (chunk) {
                 body += chunk;
             });
-            res.on('end', function () {
+            response.on('end', function () {
                 let json;
                 try {
                     json = body ? JSON.parse(body) : {};
                 }
                 catch {
-                    const error = new Error(`HTTP ${res.statusCode} returned invalid JSON.`);
-                    error.statusCode = res.statusCode;
+                    const error = new Error(`HTTP ${response.statusCode} returned invalid JSON.`);
+                    error.statusCode = response.statusCode;
                     reject(error);
                     return;
                 }
 
-                if (res.statusCode < 200 || res.statusCode >= 300) {
+                if ((response.statusCode < 200) || (response.statusCode >= 300)) {
                     const message = json.error?.message
                         || json.detail
                         || json.message
                         || JSON.stringify(json);
-                    const error = new Error(`HTTP ${res.statusCode}: ${message}`);
-                    error.statusCode = res.statusCode;
+                    const error = new Error(`HTTP ${response.statusCode}: ${message}`);
+                    error.statusCode = response.statusCode;
                     reject(error);
                     return;
                 }
@@ -157,10 +153,10 @@ function usage_request_json(hostname, path, headers)
             });
         });
 
-        req.on('timeout', function () {
-            req.destroy(new Error('Request timed out.'));
+        request.on('timeout', function () {
+            request.destroy(new Error('Request timed out.'));
         });
-        req.on('error', reject);
+        request.on('error', reject);
     });
 }
 
@@ -178,7 +174,6 @@ async function gpt_usage_fetch(access_token, account_id)
 {
     const api_paths = ['/backend-api/wham/usage', '/backend-api/codex/usage'];
     let last_error;
-
     for (const api_path of api_paths) {
         try {
             return await usage_request_json('chatgpt.com', api_path, {
@@ -210,10 +205,8 @@ function format_percent(value)
 function format_usage_bar(value)
 {
     const number = Number(value);
-    const percent = Number.isFinite(number)
-        ? Math.min(100, Math.max(0, number))
-        : 0;
-    const filled = Math.round(percent / 100 * usage_config.bar_width);
+    const percent = Number.isFinite(number) ? Math.min(100, Math.max(0, number)) : 0;
+    const filled = Math.round(percent/100*usage_config.bar_width);
     return `[${'█'.repeat(filled)}${'░'.repeat(usage_config.bar_width - filled)}]`;
 }
 
@@ -224,35 +217,23 @@ function format_reset(value)
     }
 
     const numeric = Number(value);
-    const milliseconds = Number.isFinite(numeric)
-        ? numeric * 1000
-        : new Date(value).getTime();
+    const milliseconds = Number.isFinite(numeric) ? numeric*1000 : new Date(value).getTime();
     if (!Number.isFinite(milliseconds)) {
         return String(value);
     }
 
-    const offset_milliseconds = usage_config.display_utc_offset_hours * 60 * 60 * 1000;
-    const shifted_date = new Date(milliseconds + offset_milliseconds);
-    const formatted = new Intl.DateTimeFormat('en-US', {
+    // The zone's own offset on that date, GMT+3 in summer and GMT+2 in winter.
+    const date_format = new Intl.DateTimeFormat('en-US', {
         weekday: 'short',
         month: 'short',
         day: 'numeric',
         hour: 'numeric',
         minute: '2-digit',
         hour12: true,
-        timeZone: 'UTC',
-    }).format(shifted_date);
-    const sign = usage_config.display_utc_offset_hours >= 0 ? '+' : '';
-    return `${formatted} GMT${sign}${usage_config.display_utc_offset_hours}`;
-}
-
-function usage_meter_block_from_values(label, percent, reset_at)
-{
-    return [
-        label,
-        `${format_usage_bar(percent)}  ${format_percent(percent)} used`,
-        `Resets: ${format_reset(reset_at)}`,
-    ];
+        timeZone: usage_config.display_time_zone,
+        timeZoneName: 'short',
+    });
+    return date_format.format(new Date(milliseconds));
 }
 
 function format_claude_limit_label(limit)
@@ -268,6 +249,41 @@ function format_claude_limit_label(limit)
         || limit.kind.replaceAll('_', ' ');
 }
 
+function format_money(value)
+{
+    if (!value || (typeof value.amount_minor !== 'number')) {
+        return null;
+    }
+    const exponent = Number.isInteger(value.exponent) ? value.exponent : 2;
+    const number_format = new Intl.NumberFormat('en-US', {style: 'currency', currency: value.currency || 'USD'});
+    return number_format.format(value.amount_minor/10**exponent);
+}
+
+function format_usd(value)
+{
+    return `$${value.toFixed(2)}`;
+}
+
+function format_title_case(value)
+{
+    return String(value || 'Additional limit').replace(/[_-]+/g, ' ').replace(/\b\w/g, v => v.toUpperCase());
+}
+
+function format_string_padded(value, width)
+{
+    const padding = Math.max(0, width - visible_length_of(value));
+    return `${value}${' '.repeat(padding)}`;
+}
+
+function usage_meter_block_from_values(label, percent, reset_at)
+{
+    return [
+        label,
+        `${format_usage_bar(percent)}  ${format_percent(percent)} used`,
+        `Resets: ${format_reset(reset_at)}`,
+    ];
+}
+
 function legacy_claude_limits_from_usage(usage)
 {
     const out = [];
@@ -277,38 +293,22 @@ function legacy_claude_limits_from_usage(usage)
         ['Opus', usage.seven_day_opus],
         ['Sonnet', usage.seven_day_sonnet],
     ];
-
     for (const pair of pairs) {
         const label = pair[0];
         const limit = pair[1];
         if (limit) {
-            out.push({
-                label,
-                percent: limit.utilization,
-                resets_at: limit.resets_at,
-            });
+            out.push({label, percent: limit.utilization, resets_at: limit.resets_at});
         }
     }
     return out;
 }
 
-function format_money(value)
-{
-    if (!value || typeof value.amount_minor !== 'number') {
-        return null;
-    }
-    const exponent = Number.isInteger(value.exponent) ? value.exponent : 2;
-    const tmp = new Intl.NumberFormat('en-US', {style: 'currency', currency: value.currency || 'USD'});
-    return tmp.format(value.amount_minor / 10 ** exponent);
-}
-
 function usage_blocks_from_claude_usage(usage)
 {
     const out = [];
-    const limits = Array.isArray(usage.limits) && usage.limits.length
+    const limits = (Array.isArray(usage.limits) && usage.limits.length)
         ? usage.limits
         : legacy_claude_limits_from_usage(usage);
-
     for (const limit of limits) {
         const label = limit.label || format_claude_limit_label(limit);
         const percent = limit.percent ?? limit.utilization;
@@ -325,9 +325,7 @@ function usage_blocks_from_claude_usage(usage)
         out.push(block);
     }
     else if (usage.extra_usage) {
-        out.push([
-            `Usage credits: ${usage.extra_usage.is_enabled ? 'enabled' : 'disabled'}`,
-        ]);
+        out.push([`Usage credits: ${usage.extra_usage.is_enabled ? 'enabled' : 'disabled'}`]);
     }
     return out;
 }
@@ -336,15 +334,10 @@ function weekly_window_from_rate_limit(rate_limit)
 {
     const windows = [rate_limit?.primary_window, rate_limit?.secondary_window];
     const windows_filtered = windows.filter(Boolean);
-    const tmp = windows_filtered.sort(function (a, b) {
+    const windows_sorted_by_seconds = windows_filtered.sort(function (a, b) {
         return Number(b.limit_window_seconds || 0) - Number(a.limit_window_seconds || 0);
     });
-    return tmp[0] || null;
-}
-
-function format_title_case(value)
-{
-    return String(value || 'Additional limit').replace(/[_-]+/g, ' ').replace(/\b\w/g, v => v.toUpperCase());
+    return windows_sorted_by_seconds[0] || null;
 }
 
 function usage_blocks_from_gpt_usage(usage)
@@ -369,22 +362,22 @@ function usage_blocks_from_gpt_usage(usage)
         ));
     }
 
-    for (const item of usage.additional_rate_limits || []) {
-        const window = weekly_window_from_rate_limit(item.rate_limit);
-        if (window) {
-            const label = format_title_case(item.limit_name || item.metered_feature);
-            out.push(usage_meter_block_from_values(label, window.used_percent, window.reset_at));
+    for (const additional_rate_limit of usage.additional_rate_limits || []) {
+        const weekly_window = weekly_window_from_rate_limit(additional_rate_limit.rate_limit);
+        if (weekly_window) {
+            const label = format_title_case(additional_rate_limit.limit_name || additional_rate_limit.metered_feature);
+            out.push(usage_meter_block_from_values(label, weekly_window.used_percent, weekly_window.reset_at));
         }
     }
 
     const spend_limit = usage.spend_control?.individual_limit;
     if (spend_limit) {
-        const percent = spend_limit.used_percent ?? 100 - Number(spend_limit.remaining_percent);
+        const percent = spend_limit.used_percent ?? (100 - Number(spend_limit.remaining_percent));
         out.push(usage_meter_block_from_values('Spend control', percent, spend_limit.reset_at));
     }
 
     const balance = Number(usage.credits?.balance || 0);
-    const credits_enabled = Boolean(usage.credits?.unlimited || usage.credits?.has_credits || balance > 0);
+    const credits_enabled = Boolean(usage.credits?.unlimited || usage.credits?.has_credits || (balance > 0));
     const credits_block = [`Usage credits: ${credits_enabled ? 'enabled' : 'disabled'}`];
     if (!credits_enabled) {
         credits_block.push('Credits used: $0.00');
@@ -393,7 +386,7 @@ function usage_blocks_from_gpt_usage(usage)
         credits_block.push('Credit balance: unlimited');
     }
     else {
-        credits_block.push(`Credit balance: $${balance.toFixed(2)}`);
+        credits_block.push(`Credit balance: ${format_usd(balance)}`);
     }
     out.push(credits_block);
     return out;
@@ -428,18 +421,18 @@ function usage_blocks_align(left_blocks, right_blocks)
     const out = [];
     let i = 0;
     let j = 0;
-    while (i < left_blocks.length || j < right_blocks.length) {
-        const keys_match = i < left_blocks.length
-            && j < right_blocks.length
-            && key_from_usage_block(left_blocks[i]) === key_from_usage_block(right_blocks[j]);
+    while ((i < left_blocks.length) || (j < right_blocks.length)) {
+        const keys_match = (i < left_blocks.length)
+            && (j < right_blocks.length)
+            && (key_from_usage_block(left_blocks[i]) === key_from_usage_block(right_blocks[j]));
         if (keys_match) {
             out.push([left_blocks[i], right_blocks[j]]);
             ++i;
             ++j;
         }
         else if (
-            i < left_blocks.length
-            && (j >= right_blocks.length || scores[i + 1][j] >= scores[i][j + 1])
+            (i < left_blocks.length)
+            && ((j >= right_blocks.length) || (scores[i + 1][j] >= scores[i][j + 1]))
         ) {
             out.push([left_blocks[i], []]);
             ++i;
@@ -452,16 +445,10 @@ function usage_blocks_align(left_blocks, right_blocks)
     return out;
 }
 
-function string_visible_length(value)
+function visible_length_of(value)
 {
     const value_without_ansi = value.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
     return [...value_without_ansi].length;
-}
-
-function format_string_padded(value, width)
-{
-    const padding = Math.max(0, width - string_visible_length(value));
-    return value + ' '.repeat(padding);
 }
 
 function usage_error_blocks_from_reason(provider, agent, reason)
@@ -476,18 +463,17 @@ function usage_error_blocks_from_reason(provider, agent, reason)
 
 function usage_columns_print(claude_blocks, gpt_blocks)
 {
-    const aligned_blocks = usage_blocks_align(claude_blocks, gpt_blocks);
     const all_lines = [...claude_blocks.flat(), ...gpt_blocks.flat()];
-
     let width = 6;
     for (const line of all_lines) {
-        width = Math.max(width, string_visible_length(line));
+        width = Math.max(width, visible_length_of(line));
     }
 
     console.log(`${format_string_padded('CLAUDE', width)}${usage_column_gap}GPT`);
     console.log(`${'─'.repeat(width)}${usage_column_gap}${'─'.repeat(width)}`);
 
-    for (let i = 0, end = aligned_blocks.length; i < end; ++i) {
+    const aligned_blocks = usage_blocks_align(claude_blocks, gpt_blocks);
+    for (let i = 0, ii = aligned_blocks.length; i < ii; ++i) {
         const pair = aligned_blocks[i];
         const left_block = pair[0];
         const right_block = pair[1];
@@ -497,7 +483,7 @@ function usage_columns_print(claude_blocks, gpt_blocks)
             const right_line = right_block[j] || '';
             console.log(`${format_string_padded(left_line, width)}${usage_column_gap}${right_line}`);
         }
-        if (i < end - 1) {
+        if (i < ii - 1) {
             console.log(`${' '.repeat(width)}${usage_column_gap}`);
         }
     }

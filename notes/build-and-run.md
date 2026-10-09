@@ -36,7 +36,7 @@ later. `bin/run` exec'd `podman run`, which is only a client of conmon, so
 the container lived on, and the old agent kept writing to the note beside
 the new one. Since then `bin/run` keeps podman in the background and stops
 the container by its id on a signal, with the stop detached so it finishes
-after the SIGKILL (README, "The box ends with `bin/run`").
+after the SIGKILL (docs/README.md, "The box ends with `bin/run`").
 
 ## Where it stands today
 

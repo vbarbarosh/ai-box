@@ -8,6 +8,9 @@ script=`realpath $0`
 scriptdir=`dirname $script`
 scriptname=`basename $script`
 
+BLACK="\e[30m" RED="\e[31m" GREEN="\e[32m" YELLOW="\e[33m" BLUE="\e[34m"
+PURPLE="\e[35m" CYAN="\e[36m" WHITE="\e[37m" RESET="\e[0m"
+
 cd $scriptdir/..
 
 # Everything a build prints -- podman build, the warming, extras-fill -- also
@@ -17,15 +20,9 @@ mkdir -p data/logs
 log=$PWD/data/logs/build-`TZ=Europe/Chisinau date +%Y%m%d_%H%M%S`.log
 exec > >(tee -a $log) 2>&1
 echo "$scriptname: started `TZ=Europe/Chisinau date '+%F %T %Z'`; whole output in $log"
-on_exit () {
-    status=$?
-    if test $status = 0; then
-        echo "$scriptname: done; log $log"
-    else
-        echo "$scriptname: FAILED (exit $status); whole output in $log"
-    fi
-}
-trap on_exit EXIT
+
+EXIT_MESSAGE="${RED}bin/build failed; whole output in $log${RESET}"
+trap 'echo -e "$EXIT_MESSAGE"' EXIT
 
 # Every binary the Dockerfile fetches outside apt -- Node, yt-dlp,
 # oxipng, ImageMagick, Chrome -- is the x86_64 build. On another architecture
@@ -43,13 +40,17 @@ fi
 ubuntu_refresh="$(date -u +%G-W%V)"
 stamp="$(dirname "$scriptdir")/data/refresh"
 
-pull=
+pull_flag=
 if [ "$(cat "$stamp" 2>/dev/null)" != "$ubuntu_refresh" ]; then
-    pull=--pull
+    pull_flag=--pull
 fi
 
-# An empty $pull must expand to no argument at all, so it stays unquoted.
-podman build $pull \
+# The image bin/run starts now. A build whose fill or self-check fails puts it
+# back, so a failed build ships nothing.
+image_old=$(podman image inspect --format '{{.Id}}' ai-box 2>/dev/null || echo "")
+
+# An empty $pull_flag must expand to no argument at all, so it stays unquoted.
+podman build $pull_flag \
     --build-arg "UBUNTU_REFRESH=${ubuntu_refresh}" \
     . \
     -t ai-box
@@ -84,17 +85,25 @@ graphroot=$(podman info --format '{{.Store.GraphRoot}}' 2>/dev/null || echo "")
 # tracks the copy closely -- 8.5 GB for this image, measured. It is a liveness
 # signal, not a measure of how much is left, so what is reported below is
 # written, not copied.
-free_bytes () {
+free_bytes_of_store () {
     test -n "$graphroot" || { echo 0; return; }
     df -kP "$graphroot" 2>/dev/null | awk 'NR==2 {print $4 * 1024}'
 }
 
-human () {
+format_bytes () {
     awk -v b="$1" 'BEGIN {
         split("B KB MB GB TB", u, " "); i = 1
         while (b >= 1024 && i < 5) { b /= 1024; i++ }
         printf "%.1f %s", b, u[i]
     }'
+}
+
+format_duration () {
+    if test "$1" -ge 60; then
+        printf '%dm %ds' $(( $1 / 60 )) $(( $1 % 60 ))
+    else
+        printf '%ds' "$1"
+    fi
 }
 
 podman run --rm \
@@ -104,12 +113,12 @@ podman run --rm \
     ai-box &
 warm_pid=$!
 
-start=$(date +%s)
+time0=$(date +%s)
 
 # Ctrl-C here is not a failed build: the image is built and tagged by now, and
 # only the warming is unfinished. Say so, rather than leaving the bare
 # "signal: interrupt" that podman prints, which reads like the build broke.
-on_interrupt () {
+stop_warming () {
     trap - INT TERM
     if kill -0 $warm_pid 2>/dev/null; then
         # Signal descendants too: killing only the direct child can leave its
@@ -132,21 +141,22 @@ on_interrupt () {
     fi
     test -t 1 && printf '\r\033[K' || true
     echo
-    echo "warming interrupted after $(( $(date +%s) - start ))s."
+    echo "warming interrupted after $(format_duration $(( $(date +%s) - time0 )))."
     echo "The ai-box image is built and usable -- only the id-mapped copy is"
     echo "unfinished. Re-run $scriptname to finish it here, or just use bin/run:"
     echo "it will do the remaining work on its first run instead."
+    EXIT_MESSAGE="${YELLOW}bin/build interrupted; the image is usable${RESET}"
     exit 130
 }
-trap on_interrupt INT TERM
-before=$(free_bytes)
+trap stop_warming INT TERM
+before=$(free_bytes_of_store)
 shown=
 
 # Stay quiet on a host that does not need the copy: it finishes in well under
 # the two seconds before anything is printed.
 while kill -0 $warm_pid 2>/dev/null; do
     sleep 1
-    elapsed=$(( $(date +%s) - start ))
+    elapsed=$(( $(date +%s) - time0 ))
     test "$elapsed" -ge 2 || continue
 
     if test -z "$shown"; then
@@ -155,15 +165,15 @@ while kill -0 $warm_pid 2>/dev/null; do
         shown=1
     fi
 
-    written=$(( before - $(free_bytes) ))
+    written=$(( before - $(free_bytes_of_store) ))
     test "$written" -ge 0 2>/dev/null || written=0
 
     if test "$written" -gt 0; then
         rate=$(( written / elapsed ))
-        line=$(printf '  %s written, %ds elapsed (%s/s)' \
-            "$(human $written)" "$elapsed" "$(human $rate)")
+        line=$(printf '  %s written, %s elapsed (%s/s)' \
+            "$(format_bytes $written)" "$(format_duration $elapsed)" "$(format_bytes $rate)")
     else
-        line=$(printf '  %ds elapsed' "$elapsed")
+        line=$(printf '  %s elapsed' "$(format_duration $elapsed)")
     fi
 
     if test -t 1; then
@@ -181,21 +191,24 @@ trap - INT TERM
 test -z "$shown" || { test -t 1 && printf '\r\033[K' || true; }
 
 case "$warm_status" in
-    0)   if test -n "$shown"; then
-             final=$(( before - $(free_bytes) ))
-             test "$final" -ge 0 2>/dev/null || final=0
-             echo "  warmed in $(( $(date +%s) - start ))s ($(human $final) written)"
-         fi ;;
+    0)
+        if test -n "$shown"; then
+            final=$(( before - $(free_bytes_of_store) ))
+            test "$final" -ge 0 2>/dev/null || final=0
+            echo "  warmed in $(format_duration $(( $(date +%s) - time0 ))) ($(format_bytes $final) written)"
+        fi ;;
     130|$((128+2))|$((128+15)))
-         # Signalled without our trap running (e.g. SIGINT delivered straight
-         # to the child by the terminal's process group).
-         echo "warming interrupted. The ai-box image is built and usable;"
-         echo "re-run $scriptname to finish the id-mapped copy, or let bin/run"
-         echo "do it on first run."
-         exit 130 ;;
-    *)   echo "warning: warming exited with status $warm_status." >&2
-         echo "         The image is built; bin/run will do this work on first run." >&2
-         exit "$warm_status" ;;
+        # Signalled without our trap running (e.g. SIGINT delivered straight
+        # to the child by the terminal's process group).
+        echo "warming interrupted. The ai-box image is built and usable;"
+        echo "re-run $scriptname to finish the id-mapped copy, or let bin/run"
+        echo "do it on first run."
+        EXIT_MESSAGE="${YELLOW}bin/build interrupted; the image is usable${RESET}"
+        exit 130 ;;
+    *)
+        echo "warning: warming exited with status $warm_status." >&2
+        echo "         The image is built; bin/run will do this work on first run." >&2
+        exit "$warm_status" ;;
 esac
 
 # The browsers, the whisper model, Chrome and the two agent CLIs live in
@@ -208,30 +221,58 @@ esac
 # With IMAGE_ID it skips its probes when the image, agents and Chrome are the
 # last fill's.
 mkdir -p data/extras
-refresh=
+is_new_week=
 if test "$(cat data/extras/refresh 2>/dev/null)" != "$ubuntu_refresh"; then
-    refresh=1
+    is_new_week=1
 fi
+
+# The new image ships only when its fill and the self-check pass; otherwise
+# the old one is ai-box again. The fill keeps the old one's extras for
+# KEEP_DAYS, so it starts as before.
+restore_old_image () {
+    if test -n "$image_old"; then
+        podman tag "$image_old" ai-box
+        echo "ai-box is the previous image again: the new one shipped nothing" >&2
+    else
+        podman untag ai-box
+        echo "no ai-box image: the first one shipped nothing; its layers stay cached" >&2
+    fi
+}
+
+fill_status=0
 podman run --rm \
     --pull=never \
     --shm-size=2g \
     --userns=keep-id:uid=1000,gid=1000 \
     --user 1000:1000 \
     -e HOME=/home/ubuntu \
-    -e REFRESH=$refresh \
+    -e REFRESH=$is_new_week \
     -e IMAGE_ID=$(podman image inspect --format '{{.Id}}' ai-box) \
     -v "$PWD/data/extras:/opt/extras" \
     --entrypoint /home/ubuntu/bin/extras-fill \
-    ai-box
+    ai-box || fill_status=$?
+if test "$fill_status" != 0; then
+    restore_old_image
+    exit "$fill_status"
+fi
 
 echo "$ubuntu_refresh" > data/extras/refresh
+
+# The last check: the host, the image, its extras, and a container started
+# inside a box.
+check_status=0
+$scriptdir/self-check --deep || check_status=$?
+if test "$check_status" != 0; then
+    restore_old_image
+    exit "$check_status"
+fi
 
 # Each build leaves the previous ai-box untagged, and podman keeps them all.
 # Remove them now that the new one is built and filled; podman removes an
 # image's build steps with it when no other image shares them. One a container
 # still uses, a running box or a stopped one, stays: podman refuses to remove
 # it, and the next build tries again.
-before=$(free_bytes)
+before=$(free_bytes_of_store)
 removed=
 for id in $(podman images --quiet --no-trunc --filter dangling=true); do
     case "$(podman image inspect --format '{{.NamesHistory}}' $id 2>/dev/null)" in
@@ -240,18 +281,20 @@ for id in $(podman images --quiet --no-trunc --filter dangling=true); do
     esac
     short=${id#sha256:}
     short=${short:0:12}
-    if out=$(podman rmi $id 2>&1); then
+    if rmi_message=$(podman rmi $id 2>&1); then
         echo "removed the old image $short"
         removed=1
-    elif [[ "$out" == *"in use by a container"* ]]; then
+    elif [[ "$rmi_message" == *"in use by a container"* ]]; then
         users=$(podman ps --all --filter ancestor=$id --format '{{.Names}} ({{.Status}})' | paste -sd, - | sed 's/,/, /g')
         echo "kept the old image $short: used by ${users:-a container}; the first build after they are gone removes it"
     else
-        echo "warning: could not remove the old image $short: $out" >&2
+        echo "warning: could not remove the old image $short: $rmi_message" >&2
     fi
 done
 if test -n "$removed"; then
-    freed=$(( $(free_bytes) - before ))
+    freed=$(( $(free_bytes_of_store) - before ))
     test "$freed" -ge 0 2>/dev/null || freed=0
-    echo "old images removed, $(human $freed) freed"
+    echo "old images removed, $(format_bytes $freed) freed"
 fi
+
+EXIT_MESSAGE="${GREEN}bin/build succeeded; log $log${RESET}"

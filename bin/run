@@ -50,7 +50,7 @@ refuse_agent "the workspace" "$workspace"
 if ! podman image exists ai-box; then
     echo "error: no 'ai-box' image on this host -- build it first:" >&2
     echo "         $scriptdir/build" >&2
-    echo "       (bin/missings reports what else may be absent)" >&2
+    echo "       (bin/self-check reports what else may be absent)" >&2
     exit 1
 fi
 
@@ -98,13 +98,13 @@ opts=()
 
 # Short-lived files of this run: the container's id, and with GIT=commit the
 # relay scripts and their sockets. Gone when bin/run ends.
-run=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/ai-box.XXXXXX")
+rundir=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/ai-box.XXXXXX")
 relays=()
 cleanup () {
     if test "${#relays[@]}" -gt 0; then
         kill "${relays[@]}" 2>/dev/null || true
     fi
-    rm -rf "$run"
+    rm -rf "$rundir"
 }
 trap cleanup EXIT
 
@@ -123,6 +123,12 @@ case "${GIT:-}" in
         echo "error: GIT=$GIT; the only value is commit" >&2
         exit 1 ;;
 esac
+for name in AI_BOX_MASK AI_BOX_PIDS AI_BOX_MEMORY AI_BOX_CPUS; do
+    if test -n "${!name+set}"; then
+        echo "error: $name is gone: use ${name#AI_BOX_}" >&2
+        exit 1
+    fi
+done
 if test -e "$workspace/.git"; then
     opts+=(-v "$workspace/.git:/app/.git:ro")
 fi
@@ -131,16 +137,16 @@ fi
 # replaced with /dev/null -- the same set .gitignore keeps out of git. The
 # committed templates (.env.example and friends) hold no secrets and stay
 # visible, or git inside the box would report them as emptied.
-# AI_BOX_MASK adds more names, space-separated, relative to the workspace:
-#   AI_BOX_MASK="credentials.json service-account.pem" bin/run
-masked=()
+# MASK adds more names, space-separated, relative to the workspace:
+#   MASK="credentials.json service-account.pem" bin/run
+masked_paths=()
 shopt -s nullglob dotglob
-for f in "$workspace"/.env "$workspace"/.env.* ${AI_BOX_MASK:-}; do
+for f in "$workspace"/.env "$workspace"/.env.* ${MASK:-}; do
     f="${f#"$workspace"/}"
     case "$f" in *.example|*.sample|*.template|*.dist) continue ;; esac
     test -f "$workspace/$f" || continue
     opts+=(-v "/dev/null:/app/$f:ro")
-    masked+=("$f")
+    masked_paths+=("$f")
 done
 shopt -u nullglob dotglob
 
@@ -169,7 +175,7 @@ if test -n "$git_relays"; then
     fi
     # The scripts stay outside the box; only box/ goes in, read-only, for the
     # sockets and the branch name.
-    relaydir=$run/git
+    relaydir=$rundir/git
     mkdir -p "$relaydir/box"
     echo "$branch" > "$relaydir/box/branch"
     # relay <name> < body: serves the script on box/<name>.sock. Each
@@ -180,14 +186,14 @@ if test -n "$git_relays"; then
             echo '#!/bin/bash'
             printf 'workspace=%q\n' "$workspace"
             printf 'branch=%q\n' "$branch"
-            printf 'masked=('
-            printf ' %q' "${masked[@]}"
+            printf 'masked_paths=('
+            printf ' %q' "${masked_paths[@]}"
             printf ' )\n'
             cat <<'EOF'
 export GIT_TERMINAL_PROMPT=0 GIT_LITERAL_PATHSPECS=1
 unset GIT_INDEX_FILE
 cd "$workspace" || exit 1
-on_branch () {
+check_branch () {
     local current
     current=$(git symbolic-ref --quiet --short HEAD)
     if test "$current" != "$branch"; then
@@ -217,36 +223,36 @@ EOF
 # git commit, with your hooks, and your index follows for the paths it touched.
 # A masked file is refused: the box sees it emptied.
 commit () {
-    local message= tmp p m status paths=()
+    local message= tempdir path masked_path status paths=()
     IFS= read -r -d '' message || true
-    tmp=$(mktemp -d)
-    cat > "$tmp/patch"
-    if test -z "$message" || ! test -s "$tmp/patch"; then
+    tempdir=$(mktemp -d)
+    cat > "$tempdir/patch"
+    if test -z "$message" || ! test -s "$tempdir/patch"; then
         echo "commit: needs a message and a patch"
-        rm -rf "$tmp"
+        rm -rf "$tempdir"
         return 1
     fi
-    on_branch || { rm -rf "$tmp"; return 1; }
-    export GIT_INDEX_FILE="$tmp/index"
+    check_branch || { rm -rf "$tempdir"; return 1; }
+    export GIT_INDEX_FILE="$tempdir/index"
     git read-tree HEAD
-    if ! git apply --cached "$tmp/patch"; then
+    if ! git apply --cached "$tempdir/patch"; then
         echo "commit: the patch does not apply to $branch as it is now"
-        rm -rf "$tmp"
+        rm -rf "$tempdir"
         return 1
     fi
-    while IFS= read -r -d '' p; do
-        for m in "${masked[@]}"; do
-            if test "$p" = "$m"; then
-                echo "commit: $p is hidden from the box; commit it yourself"
-                rm -rf "$tmp"
+    while IFS= read -r -d '' path; do
+        for masked_path in "${masked_paths[@]}"; do
+            if test "$path" = "$masked_path"; then
+                echo "commit: $path is hidden from the box; commit it yourself"
+                rm -rf "$tempdir"
                 return 1
             fi
         done
-        paths+=("$p")
+        paths+=("$path")
     done < <(git diff --cached --name-only --no-renames -z HEAD)
     if test "${#paths[@]}" -eq 0; then
         echo "commit: the patch changes nothing"
-        rm -rf "$tmp"
+        rm -rf "$tempdir"
         return 1
     fi
     git commit --no-edit -F - <<<"$message"
@@ -255,7 +261,7 @@ commit () {
     if test "$status" = 0; then
         git reset -q -- "${paths[@]}"
     fi
-    rm -rf "$tmp"
+    rm -rf "$tempdir"
     return "$status"
 }
 commit 2>&1
@@ -267,7 +273,7 @@ echo "push: exit $?"
 EOF
     relay pull <<'EOF'
 pull () {
-    on_branch || return 1
+    check_branch || return 1
     git fetch --no-tags --no-recurse-submodules origin "+refs/heads/$branch:refs/remotes/origin/$branch" || return
     if git merge --no-edit "refs/remotes/origin/$branch"; then
         return 0
@@ -376,26 +382,26 @@ fi
 # nothing inside can limit itself, and without these a runaway inner build
 # takes the host down with it. Each applies only when the matching cgroup
 # controller is delegated to your session (systemd does that by default on
-# current Ubuntu; bin/missings reports it). Override with an environment
+# current Ubuntu; bin/self-check reports it). Override with an environment
 # variable; 0 means no limit.
 #
-#   AI_BOX_PIDS    default 4096
-#   AI_BOX_MEMORY  default three quarters of the host's RAM
-#   AI_BOX_CPUS    default unlimited
+#   PIDS    default 4096
+#   MEMORY  default three quarters of the host's RAM
+#   CPUS    default unlimited
 controllers=$(cat "/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/cgroup.controllers" 2>/dev/null || true)
-delegated () { case " $controllers " in *" $1 "*) return 0 ;; esac; return 1; }
+is_delegated () { case " $controllers " in *" $1 "*) return 0 ;; esac; return 1; }
 
-pids=${AI_BOX_PIDS:-4096}
-memory=${AI_BOX_MEMORY:-$(awk '/^MemTotal:/ { printf "%dm", $2 * 3 / 4 / 1024 }' /proc/meminfo)}
-cpus=${AI_BOX_CPUS:-0}
+pids=${PIDS:-4096}
+memory=${MEMORY:-$(awk '/^MemTotal:/ { printf "%dm", $2 * 3 / 4 / 1024 }' /proc/meminfo)}
+cpus=${CPUS:-0}
 
-if test "$pids" != 0 && delegated pids; then
+if test "$pids" != 0 && is_delegated pids; then
     opts+=(--pids-limit "$pids")
 fi
-if test "$memory" != 0 && delegated memory; then
+if test "$memory" != 0 && is_delegated memory; then
     opts+=(--memory "$memory")
 fi
-if test "$cpus" != 0 && delegated cpu; then
+if test "$cpus" != 0 && is_delegated cpu; then
     opts+=(--cpus "$cpus")
 fi
 
@@ -411,7 +417,7 @@ elif command -v catatonit >/dev/null 2>&1; then
     opts+=(--init --init-path "$(command -v catatonit)")
 fi
 
-# A terminal only when there is one: bin/missings --deep and CI call this
+# A terminal only when there is one: bin/self-check --deep and CI call this
 # with stdin redirected, and asking for a tty there is a warning at best.
 tty=()
 if test -t 0; then
@@ -454,7 +460,7 @@ fi
 # running one fixed script there.
 
 box=(podman run --rm -i "${tty[@]}" \
-    --cidfile "$run/cid" \
+    --cidfile "$rundir/cid" \
     --pull=never \
     --shm-size=2g \
     "${opts[@]}" \
@@ -482,8 +488,8 @@ box=(podman run --rm -i "${tty[@]}" \
 # the keystroke. Only a bare SIGKILL to bin/run leaves the box running.
 stop_box () {
     trap '' HUP INT TERM
-    if test -s "$run/cid"; then
-        ( setsid podman stop --time 3 "$(cat "$run/cid")" </dev/null >/dev/null 2>&1 & )
+    if test -s "$rundir/cid"; then
+        ( setsid podman stop --time 3 "$(cat "$rundir/cid")" </dev/null >/dev/null 2>&1 & )
     else
         kill -TERM "$box_pid" 2>/dev/null
     fi

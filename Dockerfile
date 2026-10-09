@@ -143,7 +143,7 @@ RUN --mount=type=cache,target=/var/cache/apt \
 
 # What the build resolved, one name=version per line. Most components below
 # ask their upstream for the current release inside the layer, so this file is
-# the only record of what a given image carries; `bin/missings --versions`
+# the only record of what a given image carries; `bin/self-check --versions`
 # prints it. Owned by ubuntu so the layers that run as ubuntu can append.
 RUN install -d -o ubuntu -g ubuntu -m 0755 /etc/ai-box \
     && printf 'ubuntu_refresh=%s\n' "${UBUNTU_REFRESH}" > /etc/ai-box/versions \
@@ -444,12 +444,14 @@ RUN echo '# browsers, speech model, claude, codex: /opt/extras/versions' >> /etc
 # The mountpoint for the read-only shared image store. Both storage configs
 # name it, so it has to exist even when nothing is mounted over it -- otherwise
 # the inner engine refuses to start with "can't stat imageStore dir".
-RUN mkdir -p /var/lib/shared/overlay-images \
-             /var/lib/shared/overlay-layers \
-             /var/lib/shared/overlay-containers \
- && touch /var/lib/shared/overlay-images/images.lock \
-          /var/lib/shared/overlay-layers/layers.lock \
-          /var/lib/shared/overlay-containers/containers.lock
+RUN mkdir -p \
+        /var/lib/shared/overlay-images \
+        /var/lib/shared/overlay-layers \
+        /var/lib/shared/overlay-containers \
+    && touch \
+        /var/lib/shared/overlay-images/images.lock \
+        /var/lib/shared/overlay-layers/layers.lock \
+        /var/lib/shared/overlay-containers/containers.lock
 
 # COPY creates a missing parent directory owned by root, so ~/.config/containers
 # is made here, before the user config below lands in it. `install -d` gives

@@ -30,17 +30,17 @@ def main():
 
 def transcribe_one(model, path, args):
     segments, info = model.transcribe(path, language=args.lang, vad_filter=True)
-    print(f'{path}: {info.language}, {info.duration:.1f}s', file=sys.stderr)
+    print(f'{path}: {info.language}, {format_duration(info.duration)}', file=sys.stderr)
     if args.plain:
         print(' '.join(segment.text.strip() for segment in segments))
         return
     for segment in segments:
-        print(f'[{stamp(segment.start)}] {segment.text.strip()}')
+        print(f'[{format_duration(segment.start)}] {segment.text.strip()}')
 
 
 # Minutes and seconds: a screencast is read alongside its frames, and a frame
 # is easier to find by 2:07 than by 127.
-def stamp(seconds):
+def format_duration(seconds):
     return f'{int(seconds)//60}:{int(seconds)%60:02d}'
 
 

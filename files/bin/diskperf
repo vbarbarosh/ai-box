@@ -8,11 +8,16 @@ script=`realpath $0`
 scriptdir=`dirname $script`
 scriptname=`basename $script`
 
+# The test file sits in $PWD, so df and dd measure the same disk; its own name,
+# so no file of yours is overwritten.
+tmpfile=`mktemp -p $PWD .diskperf.XXXXXXXXXX`
+trap 'rm -f $tmpfile' EXIT
+
 cat << EOF
 Disk Performance:
 
 $(df $PWD -h)
-    /dev/zero     $(timeout 10s bash -c 'dd if=/dev/zero of=tmpfile bs=4K count=100K 2>&1 | tail -n1; rm tmpfile; sync')
-    /dev/urandom  $(timeout 10s bash -c 'dd if=/dev/urandom of=tmpfile bs=4K count=100K 2>&1 | tail -n1; rm tmpfile; sync')
+    /dev/zero     $(timeout 10s bash -c 'dd if=/dev/zero of="$1" bs=4K count=100K 2>&1 | tail -n1; rm -f "$1"; sync' _ $tmpfile)
+    /dev/urandom  $(timeout 10s bash -c 'dd if=/dev/urandom of="$1" bs=4K count=100K 2>&1 | tail -n1; rm -f "$1"; sync' _ $tmpfile)
 
 EOF

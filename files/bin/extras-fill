@@ -8,6 +8,11 @@ script=`realpath $0`
 scriptdir=`dirname $script`
 scriptname=`basename $script`
 
+BLACK="\e[30m" RED="\e[31m" GREEN="\e[32m" YELLOW="\e[33m" BLUE="\e[34m"
+PURPLE="\e[35m" CYAN="\e[36m" WHITE="\e[37m" RESET="\e[0m"
+
+EXIT_MESSAGE="${RED}extras-fill failed${RESET}"
+
 # Fills /opt/extras -- data/extras on the host -- with what the image leaves
 # out: Playwright's browsers, the headless shell of PLAYWRIGHT_SHELL_VERSION,
 # Cypress, the whisper model, Chrome, Claude Code and Codex. bin/build runs it
@@ -36,7 +41,7 @@ export HF_HOME=$root/huggingface
 export PLAYWRIGHT_SKIP_BROWSER_GC=1
 
 tempdir=`mktemp -d -t tmp.XXXXXXXXXX`
-trap 'rm -rf "$tempdir"' EXIT
+trap 'rm -rf "$tempdir"; echo -e "$EXIT_MESSAGE"' EXIT
 
 mkdir -p $root/ms-playwright $root/cypress $root/huggingface $root/chrome $root/npm
 
@@ -54,7 +59,7 @@ wanted=()
 versions=()
 
 # The folders a `playwright install --dry-run` names, relative to $root.
-playwright_locations () {
+playwright_locations_from_dry_run () {
     awk '/Install location:/ { print "ms-playwright/" substr($NF, index($NF, "ms-playwright/") + 14) }'
 }
 
@@ -122,7 +127,7 @@ playwright_version=`node -p "require('playwright/package.json').version"`
 playwright install --no-shell chromium firefox webkit
 while read -r path; do
     wanted+=($path)
-done < <(playwright install --dry-run --no-shell chromium firefox webkit | playwright_locations)
+done < <(playwright install --dry-run --no-shell chromium firefox webkit | playwright_locations_from_dry_run)
 playwright screenshot --browser chromium --channel chromium about:blank $tempdir/probe.png
 playwright screenshot --browser firefox about:blank $tempdir/probe.png
 playwright screenshot --browser webkit about:blank $tempdir/probe.png
@@ -138,7 +143,7 @@ shell_playwright=$tempdir/shell/node_modules/.bin/playwright
 $shell_playwright install --only-shell chromium
 while read -r path; do
     wanted+=($path)
-done < <($shell_playwright install --dry-run --only-shell chromium | playwright_locations)
+done < <($shell_playwright install --dry-run --only-shell chromium | playwright_locations_from_dry_run)
 $shell_playwright screenshot --browser chromium about:blank $tempdir/probe.png
 versions+=("playwright-shell=$shell_version")
 
@@ -186,7 +191,7 @@ versions+=("google-chrome=$chrome_version")
 if test $root = /opt/extras; then
     google-chrome --version
 fi
-node -e "Promise.resolve(require('puppeteer').executablePath()).then(p => { console.log('puppeteer browser: ' + p); if (p !== process.env.PUPPETEER_EXECUTABLE_PATH) { process.exit(1) } })"
+node -e "Promise.resolve(require('puppeteer').executablePath()).then(function (path) { console.log('puppeteer browser: ' + path); if (path !== process.env.PUPPETEER_EXECUTABLE_PATH) { process.exit(1); } })"
 
 printf '%s\n' "${versions[@]}" > $root/.versions.tmp
 mv $root/.versions.tmp $root/versions
@@ -224,3 +229,5 @@ mv $root/.wanted.tmp $root/.wanted
 echo
 cat $root/versions
 du -sh $root
+
+EXIT_MESSAGE="${GREEN}extras-fill succeeded${RESET}"

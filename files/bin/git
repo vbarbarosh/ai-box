@@ -1,21 +1,29 @@
 #!/bin/bash
 
+# http://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
+# http://redsymbol.net/articles/unofficial-bash-strict-mode
+set -o nounset -o errexit -o pipefail
+
+script=`realpath $0`
+scriptdir=`dirname $script`
+scriptname=`basename $script`
+
 # git, except that in a GIT=commit box (bin/run mounts /run/git) git commit,
 # push and pull say which command does it instead of failing on a read-only
 # .git or a missing key. Everything else goes to git as it is.
 
 if test -d /run/git; then
     skip=
-    for a in "$@"; do
+    for arg in "$@"; do
         if test -n "$skip"; then
             skip=
             continue
         fi
-        case "$a" in
+        case "$arg" in
             -C|-c) skip=1 ;;
             -*) ;;
             commit|push|pull)
-                echo "git $a: .git is read-only in this box; the host does it: run '$a' (see '$a --help')" >&2
+                echo "git $arg: .git is read-only in this box; the host does it: run '$arg' (see '$arg --help')" >&2
                 exit 1 ;;
             *) break ;;
         esac
