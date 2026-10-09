@@ -129,10 +129,6 @@ for name in AI_BOX_MASK AI_BOX_PIDS AI_BOX_MEMORY AI_BOX_CPUS; do
         exit 1
     fi
 done
-if test -n "${NOTES+set}"; then
-    echo "error: NOTES is gone: use AGENTDIR" >&2
-    exit 1
-fi
 if test -e "$workspace/.git"; then
     opts+=(-v "$workspace/.git:/app/.git:ro")
 fi
@@ -332,8 +328,7 @@ elif test -n "$REPOS"; then
 fi
 
 # The agent's folder, a Visual Notes note, read-write, so the agent answers in
-# it: AGENTDIR names it and the box sees it as /agentdir, and as /notes too, the
-# same folder twice, for agents still told "read /notes".
+# it: AGENTDIR names it and the box sees it as /agentdir.
 #   AGENTDIR=~/w/kb/app-visual-notes/data/notes/<id> bin/run claude
 # Set but wrong is an error, not a box without the note. The same guard as the
 # workspace: it is writable, so never /, $HOME or anything containing it.
@@ -355,7 +350,6 @@ if test -n "$agentdir"; then
     fi
     refuse_agent AGENTDIR "$agentdir"
     opts+=(-v "$agentdir:/agentdir")
-    opts+=(-v "$agentdir:/notes")
 fi
 
 opts+=(-v "$data/codex.json:/home/ubuntu/.codex.json")

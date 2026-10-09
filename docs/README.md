@@ -66,7 +66,7 @@ bin/run            # open the box on the current directory
 bin/run claude     # ...and go straight into an agent
 bin/run make test  # ...or run one command and exit
 AGENTDIR=~/w/kb/app-visual-notes/data/notes/<id> bin/run claude
-                   # ...with a Visual Notes note at /agentdir, and at /notes
+                   # ...with a Visual Notes note at /agentdir
 REPOS=~/w bin/run claude
                    # ...with ~/w at /repos instead of ~/repos; REPOS= for none
 GIT=commit bin/run claude
@@ -95,7 +95,7 @@ and could use every key in it). `pull` and `push` use the agent on the host.
 | `$PWD/.git` | **ro** | mounted over the writable workspace, when present; always |
 | `$PWD/.env`, `$PWD/.env.*` | hidden | each replaced with `/dev/null`, so secrets never enter the box. `MASK="a.pem b.json"` hides more |
 | `~/repos` → `/repos` | ro | or `$REPOS` when set; set but empty, no `/repos` |
-| `$AGENTDIR` → `/agentdir`, `/notes` | rw | a Visual Notes note, when `AGENTDIR` is set; the same folder twice |
+| `$AGENTDIR` → `/agentdir` | rw | a Visual Notes note, when `AGENTDIR` is set |
 | `data/claude{,.json}` → `~/.claude{,.json}` | rw | so the agent keeps its login and history |
 | `data/codex{,.json}` → `~/.codex{,.json}` | rw | same |
 | `data/images` → `/var/lib/shared` | rw | the shared image store, when it exists |
