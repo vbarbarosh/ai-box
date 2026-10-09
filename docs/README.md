@@ -65,8 +65,8 @@ bin/images         # list the shared image store; add: bin/images mysql:8.0
 bin/run            # open the box on the current directory
 bin/run claude     # ...and go straight into an agent
 bin/run make test  # ...or run one command and exit
-NOTES=~/path/to/notes/20260927_005300 bin/run claude
-                   # ...with a Visual Notes note at /notes
+AGENTDIR=~/w/kb/app-visual-notes/data/notes/<id> bin/run claude
+                   # ...with a Visual Notes note at /agentdir, and at /notes
 REPOS=~/w bin/run claude
                    # ...with ~/w at /repos instead of ~/repos; REPOS= for none
 GIT=commit bin/run claude
@@ -83,7 +83,7 @@ that would be every dotfile and key at once. Paths are resolved first, so a
 symlink does not get around it.
 
 Your ssh-agent stays outside too. `SSH_AUTH_SOCK` is not passed into the box,
-and `bin/run` refuses to start when the workspace, `REPOS` or `NOTES` holds
+and `bin/run` refuses to start when the workspace, `REPOS` or `AGENTDIR` holds
 the agent's socket (a box started from `/tmp` would see `/tmp/ssh-*/agent.*`
 and could use every key in it). `pull` and `push` use the agent on the host.
 
@@ -95,7 +95,7 @@ and could use every key in it). `pull` and `push` use the agent on the host.
 | `$PWD/.git` | **ro** | mounted over the writable workspace, when present; always |
 | `$PWD/.env`, `$PWD/.env.*` | hidden | each replaced with `/dev/null`, so secrets never enter the box. `MASK="a.pem b.json"` hides more |
 | `~/repos` → `/repos` | ro | or `$REPOS` when set; set but empty, no `/repos` |
-| `$NOTES` → `/notes` | rw | a Visual Notes note, when `NOTES` is set |
+| `$AGENTDIR` → `/agentdir`, `/notes` | rw | a Visual Notes note, when `AGENTDIR` is set; the same folder twice |
 | `data/claude{,.json}` → `~/.claude{,.json}` | rw | so the agent keeps its login and history |
 | `data/codex{,.json}` → `~/.codex{,.json}` | rw | same |
 | `data/images` → `/var/lib/shared` | rw | the shared image store, when it exists |

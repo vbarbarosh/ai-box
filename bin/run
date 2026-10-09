@@ -129,6 +129,10 @@ for name in AI_BOX_MASK AI_BOX_PIDS AI_BOX_MEMORY AI_BOX_CPUS; do
         exit 1
     fi
 done
+if test -n "${NOTES+set}"; then
+    echo "error: NOTES is gone: use AGENTDIR" >&2
+    exit 1
+fi
 if test -e "$workspace/.git"; then
     opts+=(-v "$workspace/.git:/app/.git:ro")
 fi
@@ -301,7 +305,7 @@ fi
 # set them up. An absent path would otherwise be created as an empty
 # directory. REPOS names another folder for /repos; set but empty, no /repos.
 #   REPOS=~/w bin/run claude
-# Set but wrong is an error, as with NOTES. Read-only, but never /, $HOME or
+# Set but wrong is an error, as with AGENTDIR. Read-only, but never /, $HOME or
 # anything containing it: the box would read every key there.
 if test -z "${REPOS+set}"; then
     if test -e "$HOME/repos"; then
@@ -327,28 +331,31 @@ elif test -n "$REPOS"; then
     opts+=(-v "$repos:/repos:ro")
 fi
 
-# A Visual Notes note, read-write, so the agent answers in it: NOTES names the
-# note's folder and the box sees it as /notes.
-#   NOTES=~/w/kb/app-visual-notes/data/notes/20260927_005300 bin/run claude
+# The agent's folder, a Visual Notes note, read-write, so the agent answers in
+# it: AGENTDIR names it and the box sees it as /agentdir, and as /notes too, the
+# same folder twice, for agents still told "read /notes".
+#   AGENTDIR=~/w/kb/app-visual-notes/data/notes/<id> bin/run claude
 # Set but wrong is an error, not a box without the note. The same guard as the
 # workspace: it is writable, so never /, $HOME or anything containing it.
-if test -n "${NOTES:-}"; then
-    if ! test -d "$NOTES"; then
-        echo "error: NOTES is not a directory: $NOTES" >&2
+agentdir=${AGENTDIR:-}
+if test -n "$agentdir"; then
+    if ! test -d "$agentdir"; then
+        echo "error: AGENTDIR is not a directory: $agentdir" >&2
         exit 1
     fi
-    notes=$(realpath "$NOTES")
+    agentdir=$(realpath "$agentdir")
     case "$home/" in
-        "$notes"/*)
-            echo "error: NOTES ($notes) contains your home directory ($home)" >&2
+        "$agentdir"/*)
+            echo "error: AGENTDIR ($agentdir) contains your home directory ($home)" >&2
             exit 1 ;;
     esac
-    if test "$notes" = /; then
-        echo "error: refusing to mount / as NOTES" >&2
+    if test "$agentdir" = /; then
+        echo "error: refusing to mount / as AGENTDIR" >&2
         exit 1
     fi
-    refuse_agent NOTES "$notes"
-    opts+=(-v "$notes:/notes")
+    refuse_agent AGENTDIR "$agentdir"
+    opts+=(-v "$agentdir:/agentdir")
+    opts+=(-v "$agentdir:/notes")
 fi
 
 opts+=(-v "$data/codex.json:/home/ubuntu/.codex.json")
