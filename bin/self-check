@@ -253,8 +253,14 @@ if test -d "$data/claude";      then report_ok "claude"      "agent state, rw"; 
 if test -f "$data/claude.json"; then report_ok "claude.json" "agent config, rw";  else report_missing optional "claude.json" "created on first run"; fi
 if test -d "$data/codex";       then report_ok "codex"       "agent state, rw";   else report_missing optional "codex"       "created on first run"; fi
 if test -f "$data/codex.json";  then report_ok "codex.json"  "agent config, rw";  else report_missing optional "codex.json"  "created on first run"; fi
+repos_pick=()
+if test -n "${REPOS_PICK+set}"; then
+    read -r -d '' -a repos_pick <<<"$REPOS_PICK" || true
+fi
 # shellcheck disable=SC2088  # the tilde is a label, not a path
-if test -z "${REPOS+set}"; then
+if test -n "${REPOS_PICK+set}" && test "${#repos_pick[@]}" = 0; then
+    report_ok 'REPOS_PICK'  "empty: no /repos"
+elif test -z "${REPOS+set}"; then
     if test -d "$HOME/repos";    then report_ok '~/repos'      "/repos, read-only"; else report_missing optional '~/repos'      "mkdir it, or set REPOS, to mount it"; fi
 elif test -z "$REPOS"; then
     report_ok 'REPOS'       "empty: no /repos"
@@ -262,6 +268,15 @@ elif test -d "$REPOS"; then
     report_ok 'REPOS'       "$REPOS as /repos, read-only"
 else
     report_missing required 'REPOS'       "not a directory: $REPOS"
+fi
+if test "${#repos_pick[@]}" -gt 0; then
+    report_ok 'REPOS_PICK'  "only ${repos_pick[*]}, each at /repos/<name>"
+    repos_folder=${REPOS-$HOME/repos}
+    for name in "${repos_pick[@]}"; do
+        if test -z "$repos_folder" || ! test -d "$repos_folder/$name"; then
+            report_missing optional 'REPOS_PICK'  "no $name in ${repos_folder:-REPOS}, skipped"
+        fi
+    done
 fi
 
 # Stale container records naming a runtime that is no longer installed make

@@ -303,12 +303,21 @@ fi
 #   REPOS=~/w bin/run claude
 # Set but wrong is an error, as with AGENTDIR. Read-only, but never /, $HOME or
 # anything containing it: the box would read every key there.
+# REPOS_PICK picks repositories of that folder, each at /repos/<name>, for an
+# agent that reads only those; a name with no folder there is skipped. Set but
+# empty, no /repos, and REPOS is not looked at.
+#   REPOS_PICK='rules banner-editor' bin/run claude
 repos=
-if test -z "${REPOS+set}"; then
+repos_pick=()
+if test -n "${REPOS_PICK+set}"; then
+    read -r -d '' -a repos_pick <<<"$REPOS_PICK" || true
+fi
+if test -n "${REPOS_PICK+set}" && test "${#repos_pick[@]}" = 0; then
+    : # a light agent, with no repositories
+elif test -z "${REPOS+set}"; then
     if test -e "$HOME/repos"; then
         repos=$(realpath "$HOME/repos")
         refuse_agent "the default ~/repos" "$repos"
-        opts+=(-v "$HOME/repos:/repos:ro")
     fi
 elif test -n "$REPOS"; then
     if ! test -d "$REPOS"; then
@@ -326,35 +335,78 @@ elif test -n "$REPOS"; then
         exit 1
     fi
     refuse_agent REPOS "$repos"
-    opts+=(-v "$repos:/repos:ro")
+fi
+
+# The repositories /repos holds, as folders of the host: every one, or the
+# picked ones. Symlinked folders are skipped: their targets are not mounted.
+repo_dirs=()
+if test -z "${REPOS_PICK+set}"; then
+    if test -n "$repos"; then
+        opts+=(-v "$repos:/repos:ro")
+        shopt -s nullglob dotglob
+        for dir in "$repos"/*/; do
+            dir=${dir%/}
+            test -L "$dir" || repo_dirs+=("$dir")
+        done
+        shopt -u nullglob dotglob
+    fi
+else
+    for name in "${repos_pick[@]}"; do
+        case "$name" in
+            .|..|*/*|*:*)
+                echo "ai-box: REPOS_PICK: $name is not a repository name, skipped" >&2
+                continue ;;
+        esac
+        dir=$repos/$name
+        if test -z "$repos" || ! test -d "$dir"; then
+            echo "ai-box: REPOS_PICK: no $name in ${repos:-REPOS}, skipped" >&2
+            continue
+        fi
+        if test -L "$dir"; then
+            echo "ai-box: REPOS_PICK: $name is a symlink, skipped" >&2
+            continue
+        fi
+        is_picked=
+        for repo_dir in "${repo_dirs[@]}"; do
+            if test "$repo_dir" = "$dir"; then
+                is_picked=1
+            fi
+        done
+        if test -z "$is_picked"; then
+            repo_dirs+=("$dir")
+            opts+=(-v "$dir:/repos/$name:ro")
+        fi
+    done
 fi
 
 # Read-only is not hidden: every repository in /repos keeps its .env and
 # .env.* out as the workspace does, and a workspace inside /repos (a machine
 # that starts the box in a folder of REPOS) is masked there as at /app, MASK
-# included. Symlinked folders are skipped: their targets are not mounted.
+# included.
+workspace_in_repos=
 if test -n "$repos"; then
     case "$workspace/" in
         "$repos"/*) workspace_in_repos=${workspace#"$repos"/} ;;
-        *) workspace_in_repos= ;;
     esac
-    shopt -s nullglob dotglob
-    for dir in "$repos"/*/; do
-        dir=${dir%/}
-        test -L "$dir" && continue
-        test "${dir#"$repos"/}" = "$workspace_in_repos" && continue
-        for f in "$dir"/.env "$dir"/.env.*; do
-            case "$f" in *.example|*.sample|*.template|*.dist) continue ;; esac
-            test -f "$f" || continue
-            opts+=(-v "/dev/null:/repos/${f#"$repos"/}:ro")
-        done
+fi
+shopt -s nullglob dotglob
+for dir in "${repo_dirs[@]}"; do
+    test "${dir#"$repos"/}" = "$workspace_in_repos" && continue
+    for f in "$dir"/.env "$dir"/.env.*; do
+        case "$f" in *.example|*.sample|*.template|*.dist) continue ;; esac
+        test -f "$f" || continue
+        opts+=(-v "/dev/null:/repos/${f#"$repos"/}:ro")
     done
-    shopt -u nullglob dotglob
-    if test -n "$workspace_in_repos"; then
-        for f in "${masked_paths[@]}"; do
-            opts+=(-v "/dev/null:/repos/$workspace_in_repos/$f:ro")
-        done
-    fi
+done
+shopt -u nullglob dotglob
+if test -n "$workspace_in_repos"; then
+    for dir in "${repo_dirs[@]}"; do
+        if test "$dir" = "$repos/${workspace_in_repos%%/*}"; then
+            for f in "${masked_paths[@]}"; do
+                opts+=(-v "/dev/null:/repos/$workspace_in_repos/$f:ro")
+            done
+        fi
+    done
 fi
 
 # The agent's folder, a Visual Notes note, read-write, so the agent answers in
