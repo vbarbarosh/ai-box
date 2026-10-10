@@ -303,9 +303,11 @@ fi
 #   REPOS=~/w bin/run claude
 # Set but wrong is an error, as with AGENTDIR. Read-only, but never /, $HOME or
 # anything containing it: the box would read every key there.
+repos=
 if test -z "${REPOS+set}"; then
     if test -e "$HOME/repos"; then
-        refuse_agent "the default ~/repos" "$(realpath "$HOME/repos")"
+        repos=$(realpath "$HOME/repos")
+        refuse_agent "the default ~/repos" "$repos"
         opts+=(-v "$HOME/repos:/repos:ro")
     fi
 elif test -n "$REPOS"; then
@@ -325,6 +327,34 @@ elif test -n "$REPOS"; then
     fi
     refuse_agent REPOS "$repos"
     opts+=(-v "$repos:/repos:ro")
+fi
+
+# Read-only is not hidden: every repository in /repos keeps its .env and
+# .env.* out as the workspace does, and a workspace inside /repos (a machine
+# that starts the box in a folder of REPOS) is masked there as at /app, MASK
+# included. Symlinked folders are skipped: their targets are not mounted.
+if test -n "$repos"; then
+    case "$workspace/" in
+        "$repos"/*) workspace_in_repos=${workspace#"$repos"/} ;;
+        *) workspace_in_repos= ;;
+    esac
+    shopt -s nullglob dotglob
+    for dir in "$repos"/*/; do
+        dir=${dir%/}
+        test -L "$dir" && continue
+        test "${dir#"$repos"/}" = "$workspace_in_repos" && continue
+        for f in "$dir"/.env "$dir"/.env.*; do
+            case "$f" in *.example|*.sample|*.template|*.dist) continue ;; esac
+            test -f "$f" || continue
+            opts+=(-v "/dev/null:/repos/${f#"$repos"/}:ro")
+        done
+    done
+    shopt -u nullglob dotglob
+    if test -n "$workspace_in_repos"; then
+        for f in "${masked_paths[@]}"; do
+            opts+=(-v "/dev/null:/repos/$workspace_in_repos/$f:ro")
+        done
+    fi
 fi
 
 # The agent's folder, a Visual Notes note, read-write, so the agent answers in

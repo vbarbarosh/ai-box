@@ -94,7 +94,7 @@ and could use every key in it). `pull` and `push` use the agent on the host.
 | `$PWD` → `/app` | rw | the project; the only writable host path |
 | `$PWD/.git` | **ro** | mounted over the writable workspace, when present; always |
 | `$PWD/.env`, `$PWD/.env.*` | hidden | each replaced with `/dev/null`, so secrets never enter the box. `MASK="a.pem b.json"` hides more |
-| `~/repos` → `/repos` | ro | or `$REPOS` when set; set but empty, no `/repos` |
+| `~/repos` → `/repos` | ro | or `$REPOS` when set; set but empty, no `/repos`. The `.env` and `.env.*` at the top of each repository in it are hidden as the workspace's are; a workspace inside it is hidden there as at `/app`, `MASK` included |
 | `$AGENTDIR` → `/agentdir` | rw | a Visual Notes note, when `AGENTDIR` is set |
 | `data/claude{,.json}` → `~/.claude{,.json}` | rw | so the agent keeps its login and history |
 | `data/codex{,.json}` → `~/.codex{,.json}` | rw | same |
