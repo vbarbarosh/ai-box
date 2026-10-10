@@ -432,10 +432,10 @@ RUN ln -sf /usr/share/zoneinfo/${TZ} /etc/localtime \
 RUN install -d -m 0755 /home/ubuntu/.cache /home/ubuntu/.npm /home/ubuntu/.codex /home/ubuntu/.claude \
     && chown ubuntu:ubuntu /home/ubuntu /home/ubuntu/.cache /home/ubuntu/.npm /home/ubuntu/.codex /home/ubuntu/.claude
 
-# A project that pins an older Playwright and launches it plainly needs that
-# release's headless shell; extras-fill installs it beside the current
-# browsers.
-ENV PLAYWRIGHT_SHELL_VERSION=1.61.1
+# A project that pins an older Playwright needs that release's Chromium, the
+# full browser and its headless shell; extras-fill installs them beside the
+# current browsers.
+ENV PLAYWRIGHT_PINNED_VERSION=1.61.1
 
 # What lives in data/extras is recorded by extras-fill in a file of its own,
 # in the same format; this line points there.

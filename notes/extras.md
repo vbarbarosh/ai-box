@@ -18,6 +18,7 @@ data/extras/
     chromium-1234/             Playwright 1.62.1's revisions, as Playwright names them
     firefox-1538/
     webkit-2336/
+    chromium-1228/             Playwright 1.61.1's, for projects that pin it
     chromium_headless_shell-1228/
   cypress/14.5.4/
   huggingface/                 faster-whisper-small, in Hugging Face's own layout
@@ -39,7 +40,7 @@ the folder mounted writable and one script in it, `extras-fill`:
 
 | entry | how | downloads when |
 |---|---|---|
-| Playwright browsers | `playwright install --no-shell chromium firefox webkit`, plus the pinned shell | `PLAYWRIGHT_VERSION` changes |
+| Playwright browsers | `playwright install --no-shell chromium firefox webkit`, plus the pinned release's Chromium | `PLAYWRIGHT_VERSION` changes |
 | Cypress | `cypress install` | `CYPRESS_VERSION` changes |
 | Whisper model | `WhisperModel(...)` once, as the build does today | `WHISPER_MODEL` changes |
 | Chrome | the .deb from Google's repository, checksum as today, `dpkg-deb -x` | weekly, with the full refresh |
@@ -55,11 +56,11 @@ also fetches Chrome.
 A step installs into a temporary name and renames it when its check passed
 (`claude --version`, `cypress verify`, a real Chrome launch), so a failed or
 interrupted fill leaves the previous version in place. Playwright's own
-clean-up is off (`PLAYWRIGHT_SKIP_BROWSER_GC`): it would delete the headless
-shell, whose Playwright is a throwaway npx copy. Instead `.wanted` records
-when each entry was last current, and an entry is removed three days after
-that (`KEEP_DAYS`), so a box started before the fill still finds the version
-it started with.
+clean-up is off (`PLAYWRIGHT_SKIP_BROWSER_GC`): it would delete the pinned
+release's Chromium, whose Playwright is a throwaway copy. Instead `.wanted`
+records when each entry was last current, and an entry is removed three days
+after that (`KEEP_DAYS`), so a box started before the fill still finds the
+version it started with.
 
 ## Mounting it
 

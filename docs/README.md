@@ -204,7 +204,8 @@ weekly or less. So they live in `data/extras`, each under its version:
 ```
 data/extras/
   versions          what is here, name=version, as in /etc/ai-box/versions
-  ms-playwright/    chromium-1234/, firefox-1538/, webkit-2336/, headless shell
+  ms-playwright/    chromium-1234/, firefox-1538/, webkit-2336/, and 1.61.1's
+                    chromium-1228/ with its headless shell
   cypress/          14.5.4/
   huggingface/      the whisper model
   chrome/           155.0.8059.39-1/, current -> 155.0.8059.39-1
@@ -379,9 +380,10 @@ There used to be four Chromiums in the image and two ImageMagicks. Now:
   launch asks for the full browser's headless mode with `channel: 'chromium'`
   rather than a second 262 MB build whose only job is to be the headless one;
   a plain `chromium.launch()` looks for that build and fails.
-- **One headless shell, for a project with its own Playwright.** A suite that
-  runs the `@playwright/test` its lockfile pins and launches it plainly needs
-  the shell of that release (`PLAYWRIGHT_SHELL_VERSION`), 262 MB.
+- **One older Chromium, for a project with its own Playwright.** A suite that
+  runs the `@playwright/test` its lockfile pins needs that release's Chromium
+  (`PLAYWRIGHT_PINNED_VERSION`): the full browser for `channel: 'chromium'`,
+  379 MB, and the headless shell for a plain launch, 262 MB.
 - **One ImageMagick, version 7.** The apt package (version 6) is gone. `magick`
   is the AppImage; the legacy names — `convert`, `identify`, `mogrify`,
   `composite`, `montage`, `compare` — are a wrapper that runs `magick <name>`,
