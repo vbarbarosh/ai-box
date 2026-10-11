@@ -221,6 +221,7 @@ esac
 # With IMAGE_ID it skips its probes when the image, agents and Chrome are the
 # last fill's.
 mkdir -p data/extras
+filled_old=$(stat -c %i:%Y data/extras/.filled 2>/dev/null || echo "")
 is_new_week=
 if test "$(cat data/extras/refresh 2>/dev/null)" != "$ubuntu_refresh"; then
     is_new_week=1
@@ -285,7 +286,7 @@ for id in $(podman images --quiet --no-trunc --filter dangling=true); do
         echo "removed the old image $short"
         removed=1
     elif [[ "$rmi_message" == *"in use by a container"* ]]; then
-        users=$(podman ps --all --filter ancestor=$id --format '{{.Names}} ({{.Status}})' | paste -sd, - | sed 's/,/, /g')
+        users=$(podman ps --all --filter ancestor=${id#sha256:} --format '{{.Names}} ({{.Status}})' | paste -sd, - | sed 's/,/, /g')
         echo "kept the old image $short: used by ${users:-a container}; the first build after they are gone removes it"
     else
         echo "warning: could not remove the old image $short: $rmi_message" >&2
@@ -295,6 +296,20 @@ if test -n "$removed"; then
     freed=$(( $(free_bytes_of_store) - before ))
     test "$freed" -ge 0 2>/dev/null || freed=0
     echo "old images removed, $(format_bytes $freed) freed"
+fi
+
+# A running box overlays data/extras as it was when the box started; a folder
+# the fill adds under it is listed but cannot be opened (d?????????). A fill
+# that wrote anything rewrites .filled, so name the boxes to restart.
+if test "$(stat -c %i:%Y data/extras/.filled 2>/dev/null || echo "")" != "$filled_old"; then
+    boxes=
+    for id in $(podman ps --format '{{.ID}} {{.Mounts}}' | awk '$0 ~ /\/opt\/extras[] ]/ { print $1 }'); do
+        boxes+="    $(podman inspect --format '{{.Name}}{{range .Mounts}}{{if eq .Destination "/app"}} on {{.Source}}{{end}}{{end}}' $id)"$'\n'
+    done
+    if test -n "$boxes"; then
+        echo "restart the running boxes to see the new extras; they keep the ones they started with:"
+        printf '%s' "$boxes"
+    fi
 fi
 
 EXIT_MESSAGE="${GREEN}bin/build succeeded; log $log${RESET}"

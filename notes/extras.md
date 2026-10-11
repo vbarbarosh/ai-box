@@ -126,4 +126,7 @@ errors already say.
 - The `:O` mount on the host's native overlay, rootless: tested only with the
   nested podman. The kernel calls changes to an overlay's lower folder while
   it is mounted undefined; the fill only adds folders, moves `current` links
-  and removes what has been unused for three days.
+  and removes what has been unused for three days. Seen on the host
+  2026-10-11: a box started the day before listed the new `chromium-1228` as
+  `d?????????`, "No such file or directory". `bin/build` now names the running
+  boxes to restart after a fill that wrote anything.

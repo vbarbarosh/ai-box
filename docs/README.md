@@ -223,7 +223,9 @@ data/extras/
   folder is never written by a box, and what a box writes there -- a
   project's own `npx playwright install` -- ends with it. Without the agent
   CLIs `bin/run` stops and says to run `bin/build`; without the rest it starts
-  with a warning, since the fill installs the agents first.
+  with a warning, since the fill installs the agents first. A box sees the
+  folder as it was when it started: what a later fill adds is listed but
+  cannot be opened, so `bin/build` names the running boxes to restart.
 - **Inside, nothing moved.** `claude` and `codex` are on the `PATH`;
   `PLAYWRIGHT_BROWSERS_PATH`, `CYPRESS_CACHE_FOLDER` and `HF_HOME` point into
   `/opt/extras`; `/opt/google/chrome` and `/usr/bin/google-chrome` lead there.
