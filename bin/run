@@ -409,6 +409,42 @@ if test -n "$workspace_in_repos"; then
     done
 fi
 
+# The host's sockets, a folder of them read-only at /sockets, so the box talks
+# to a service of the host without the socket sitting in /repos. Read-only
+# still connects: connect() writes nothing to the socket's filesystem. The
+# folder is mounted, not each socket, so a service that starts again with a new
+# socket is still reached. SOCKETS names another folder for /sockets; set but
+# empty, no /sockets.
+#   SOCKETS=~/w/sockets bin/run claude
+# Set but wrong is an error, as with REPOS; never /, $HOME or anything
+# containing it, nor the folder of your ssh-agent's socket.
+sockets=
+if test -z "${SOCKETS+set}"; then
+    if test -e "$HOME/sockets"; then
+        sockets=$(realpath "$HOME/sockets")
+        refuse_agent "the default ~/sockets" "$sockets"
+    fi
+elif test -n "$SOCKETS"; then
+    if ! test -d "$SOCKETS"; then
+        echo "error: SOCKETS is not a directory: $SOCKETS" >&2
+        exit 1
+    fi
+    sockets=$(realpath "$SOCKETS")
+    case "$home/" in
+        "$sockets"/*)
+            echo "error: SOCKETS ($sockets) contains your home directory ($home)" >&2
+            exit 1 ;;
+    esac
+    if test "$sockets" = /; then
+        echo "error: refusing to mount / as SOCKETS" >&2
+        exit 1
+    fi
+    refuse_agent SOCKETS "$sockets"
+fi
+if test -n "$sockets"; then
+    opts+=(-v "$sockets:/sockets:ro")
+fi
+
 # The agent's folder, a Visual Notes note, read-write, so the agent answers in
 # it: AGENTDIR names it and the box sees it as /agentdir.
 #   AGENTDIR=~/w/kb/app-visual-notes/data/notes/<id> bin/run claude

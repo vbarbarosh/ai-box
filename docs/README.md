@@ -71,6 +71,9 @@ REPOS=~/w bin/run claude
                    # ...with ~/w at /repos instead of ~/repos; REPOS= for none
 REPOS_PICK='rules infra' bin/run claude
                    # ...with only those two at /repos; REPOS_PICK= for none
+SOCKETS=~/w/sockets bin/run claude
+                   # ...with ~/w/sockets at /sockets instead of ~/sockets;
+                   # SOCKETS= for none
 GIT=commit bin/run claude
                    # ...letting the agent commit, push and pull the branch
                    # you are on, through the host; see Commit, push and pull
@@ -85,9 +88,9 @@ that would be every dotfile and key at once. Paths are resolved first, so a
 symlink does not get around it.
 
 Your ssh-agent stays outside too. `SSH_AUTH_SOCK` is not passed into the box,
-and `bin/run` refuses to start when the workspace, `REPOS` or `AGENTDIR` holds
-the agent's socket (a box started from `/tmp` would see `/tmp/ssh-*/agent.*`
-and could use every key in it). `pull` and `push` use the agent on the host.
+and `bin/run` refuses to start when the workspace, `REPOS`, `SOCKETS` or
+`AGENTDIR` holds the agent's socket (a box started from `/tmp` would see
+`/tmp/ssh-*/agent.*` and could use every key in it). `pull` and `push` use the agent on the host.
 
 ### What `bin/run` gives the box
 
@@ -97,6 +100,7 @@ and could use every key in it). `pull` and `push` use the agent on the host.
 | `$PWD/.git` | **ro** | mounted over the writable workspace, when present; always |
 | `$PWD/.env`, `$PWD/.env.*` | hidden | each replaced with `/dev/null`, so secrets never enter the box. `MASK="a.pem b.json"` hides more |
 | `~/repos` → `/repos` | ro | or `$REPOS` when set; set but empty, no `/repos`. `REPOS_PICK="a b"` mounts only those repositories of it, each at `/repos/<name>`, a missing or symlinked one skipped with a line on stderr; set but empty, no `/repos`. The `.env` and `.env.*` at the top of each repository in it are hidden as the workspace's are; a workspace inside it is hidden there as at `/app`, `MASK` included |
+| `~/sockets` → `/sockets` | ro | or `$SOCKETS` when set; set but empty, no `/sockets`. The host's sockets for the box to talk to: read-only still connects, and the folder is mounted rather than each socket, so a service that starts again with a new socket is still reached |
 | `$AGENTDIR` → `/agentdir` | rw | a Visual Notes note, when `AGENTDIR` is set |
 | `data/claude{,.json}` → `~/.claude{,.json}` | rw | so the agent keeps its login and history |
 | `data/codex{,.json}` → `~/.codex{,.json}` | rw | same |
@@ -113,9 +117,9 @@ otherwise be created as a directory and the agents want files there.
 Those paths are relative to **this repo**, not to the directory you run from --
 see [Where the box keeps its state](#where-the-box-keeps-its-state).
 
-`--shm-size=2g` is set for Chrome/Playwright. `$PWD/.git`, `$PWD/.env` and
-`~/repos` are mounted only when they exist, so a bind mount never silently
-creates an empty directory in your home.
+`--shm-size=2g` is set for Chrome/Playwright. `$PWD/.git`, `$PWD/.env`,
+`~/repos` and `~/sockets` are mounted only when they exist, so a bind mount
+never silently creates an empty directory in your home.
 
 ### Commit, push and pull
 

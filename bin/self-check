@@ -278,6 +278,16 @@ if test "${#repos_pick[@]}" -gt 0; then
         fi
     done
 fi
+# shellcheck disable=SC2088  # the tilde is a label, not a path
+if test -z "${SOCKETS+set}"; then
+    if test -d "$HOME/sockets";  then report_ok '~/sockets'    "/sockets, read-only"; else report_missing optional '~/sockets'    "mkdir it, or set SOCKETS, to mount it"; fi
+elif test -z "$SOCKETS"; then
+    report_ok 'SOCKETS'     "empty: no /sockets"
+elif test -d "$SOCKETS"; then
+    report_ok 'SOCKETS'     "$SOCKETS as /sockets, read-only"
+else
+    report_missing required 'SOCKETS'     "not a directory: $SOCKETS"
+fi
 
 # Stale container records naming a runtime that is no longer installed make
 # every podman command noisy. Worth naming, because the error does not say so.
