@@ -77,6 +77,9 @@ SOCKETS=~/w/sockets bin/run claude
 GIT=commit bin/run claude
                    # ...letting the agent commit, push and pull the branch
                    # you are on, through the host; see Commit, push and pull
+CLAUDE_CODE_OAUTH_TOKEN=... bin/run claude
+                   # ...signed in to that account instead of the shared one;
+                   # CODEX_API_KEY for codex; see Its own sign-in
 
 bin/usage          # rate-limit usage of the agents the box is logged in to,
                    # Claude and GPT side by side; reads data/, starts nothing
@@ -116,6 +119,22 @@ otherwise be created as a directory and the agents want files there.
 
 Those paths are relative to **this repo**, not to the directory you run from --
 see [Where the box keeps its state](#where-the-box-keeps-its-state).
+
+#### Its own sign-in
+
+A box can sign in to an account of its own instead of the shared one in
+`data/`. `bin/run` passes each of these into the box when it is set and not
+empty, by name only (`--env NAME`), so the value never appears on a command
+line or in `data/`, and the shared sign-in keeps renewing itself:
+
+| variable | for | |
+|---|---|---|
+| `CLAUDE_CODE_OAUTH_TOKEN` | `claude` | the long-lived token of `claude setup-token`; `claude auth status` inside says `oauth_token` |
+| `CODEX_API_KEY` | `codex` | an API key; `codex doctor` inside says auth mode `api_key` |
+| `OPENAI_API_KEY` | other tools | passed as it is; codex 0.163 does not sign in with it, alone or beside the shared sign-in |
+
+Unset or empty, the agent uses the shared sign-in. `bin/self-check` says which
+are set, never their values.
 
 `--shm-size=2g` is set for Chrome/Playwright. `$PWD/.git`, `$PWD/.env`,
 `~/repos` and `~/sockets` are mounted only when they exist, so a bind mount

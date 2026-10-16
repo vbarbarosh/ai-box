@@ -289,6 +289,21 @@ else
     report_missing required 'SOCKETS'     "not a directory: $SOCKETS"
 fi
 
+echo
+echo "sign-ins bin/run will pass ${dim}(by name, never written to $short)${reset}"
+for name in CLAUDE_CODE_OAUTH_TOKEN CODEX_API_KEY; do
+    if test -n "${!name:-}"; then
+        report_ok "$name" "set: the box signs in with it"
+    else
+        report_ok "$name" "not set: the shared sign-in"
+    fi
+done
+if test -n "${OPENAI_API_KEY:-}"; then
+    report_ok OPENAI_API_KEY "set: passed in; codex signs in with CODEX_API_KEY"
+else
+    report_ok OPENAI_API_KEY "not set"
+fi
+
 # Stale container records naming a runtime that is no longer installed make
 # every podman command noisy. Worth naming, because the error does not say so.
 stale=$(podman ps -a 2>&1 >/dev/null | grep -c "is in use by a container, but is not available" || true)
