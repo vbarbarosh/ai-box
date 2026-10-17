@@ -533,15 +533,14 @@ fi
 #   CLAUDE_CODE_OAUTH_TOKEN  claude prefers it to the shared sign-in
 #   CODEX_API_KEY            codex prefers it to the shared sign-in
 #   OPENAI_API_KEY           for other tools; codex 0.163 ignores it
-# Fresh token tests must not fall back to a token inherited from the host.
-# Enter the credential being tested inside the fresh box instead.
-if test -z "$fresh"; then
-    for name in CLAUDE_CODE_OAUTH_TOKEN CODEX_API_KEY OPENAI_API_KEY; do
-        if test -n "${!name:-}"; then
-            opts+=(--env "$name")
-        fi
-    done
+for name in CLAUDE_CODE_OAUTH_TOKEN CODEX_API_KEY OPENAI_API_KEY; do
+    if test -n "${!name:-}"; then
+        opts+=(--env "$name")
+    fi
+done
 
+# Fresh boxes accept explicit credentials without mounting saved sign-ins.
+if test -z "$fresh"; then
     opts+=(-v "$data/codex.json:/home/ubuntu/.codex.json")
     opts+=(-v "$data/claude.json:/home/ubuntu/.claude.json")
     opts+=(-v "$data/codex:/home/ubuntu/.codex")

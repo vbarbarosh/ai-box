@@ -128,8 +128,24 @@ only with `FRESH=app`. Unset or empty `FRESH` keeps `bin/run`'s ordinary behavio
 other values are errors. `bin/run-fresh` defaults an unset or empty `FRESH` to
 `1` and passes commands and their arguments to `bin/run` unchanged.
 
-Fresh mode does not forward authentication environment variables. For token
-testing, open `bin/run-fresh`, then enter the token **inside that shell**:
+Fresh mode forwards nonempty `CLAUDE_CODE_OAUTH_TOKEN`, `CODEX_API_KEY` and
+`OPENAI_API_KEY`, just like ordinary mode. They are passed by name, so their
+values do not appear in the launch command or its log. Saved sign-ins stay
+outside the box. For example, with the variable already exported:
+
+```bash
+bin/run-fresh claude    # uses CLAUDE_CODE_OAUTH_TOKEN
+bin/run-fresh codex     # uses CODEX_API_KEY
+```
+
+Unset or empty credentials leave the fresh box signed out. To test a token
+entered inside the box, unset any exported credentials first:
+
+```bash
+env -u CLAUDE_CODE_OAUTH_TOKEN -u CODEX_API_KEY -u OPENAI_API_KEY bin/run-fresh
+```
+
+Then enter the token **inside that shell**:
 
 ```bash
 read -rsp 'Access token: ' test_token; echo
@@ -173,9 +189,10 @@ see [Where the box keeps its state](#where-the-box-keeps-its-state).
 #### Its own sign-in
 
 A box can sign in to an account of its own instead of the shared one in
-`data/`. `bin/run` passes each of these into the box when it is set and not
-empty, by name only (`--env NAME`), so the value never appears on a command
-line or in `data/`, and the shared sign-in keeps renewing itself:
+`data/`. Both ordinary and fresh modes pass each of these into the box when
+it is set and not empty, by name only (`--env NAME`), so the value never
+appears on a command line or in `data/`. In ordinary mode, the shared sign-in
+keeps renewing itself:
 
 | variable | for | |
 |---|---|---|
@@ -183,8 +200,9 @@ line or in `data/`, and the shared sign-in keeps renewing itself:
 | `CODEX_API_KEY` | `codex` | an API key; `codex doctor` inside says auth mode `api_key` |
 | `OPENAI_API_KEY` | other tools | passed as it is; codex 0.163 does not sign in with it, alone or beside the shared sign-in |
 
-Unset or empty, the agent uses the shared sign-in. `bin/self-check` says which
-are set, never their values.
+Unset or empty, the agent uses the shared sign-in in ordinary mode; a fresh
+box has no shared sign-in. `bin/self-check` says which are set, never their
+values.
 
 `--shm-size=2g` is set for Chrome/Playwright. `$PWD/.git`, `$PWD/.env`,
 `~/repos` and `~/sockets` are mounted only when they exist, so a bind mount

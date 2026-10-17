@@ -327,15 +327,22 @@ if test -n "$deep"; then
             report_missing required "container inside box" "$nested_line"
         fi
 
-        # Two separate boxes must both start without credentials or the
-        # previous box's files. No real token or model request is needed.
+        # Fresh boxes accept explicit credentials but never saved sign-ins or
+        # the previous box's files. No real token or model request is needed.
         fresh_ok=1
         for attempt in 1 2; do
+            fresh_token=ai-box-self-check
+            if test "$attempt" = 2; then
+                fresh_token=
+            fi
             if ! fresh_line=$(env -u GIT -u REPOS -u REPOS_PICK -u SOCKETS -u AGENTDIR -u MASK \
-                FRESH=1 CODEX_API_KEY=ai-box-self-check CODEX_ACCESS_TOKEN=ai-box-self-check \
-                OPENAI_API_KEY=ai-box-self-check CLAUDE_CODE_OAUTH_TOKEN=ai-box-self-check \
-                "$scriptdir/run-fresh" bash -seu 2>&1 <<'EOF'
-test -z "${CODEX_API_KEY:-}${CODEX_ACCESS_TOKEN:-}${OPENAI_API_KEY:-}${CLAUDE_CODE_OAUTH_TOKEN:-}"
+                FRESH=1 CODEX_API_KEY="$fresh_token" CODEX_ACCESS_TOKEN=ai-box-self-check \
+                OPENAI_API_KEY="$fresh_token" CLAUDE_CODE_OAUTH_TOKEN="$fresh_token" \
+                "$scriptdir/run-fresh" bash -seu -- "$fresh_token" 2>&1 <<'EOF'
+test "${CODEX_API_KEY:-}" = "$1"
+test "${OPENAI_API_KEY:-}" = "$1"
+test "${CLAUDE_CODE_OAUTH_TOKEN:-}" = "$1"
+test -z "${CODEX_ACCESS_TOKEN:-}"
 for path in "$HOME/.codex/auth.json" "$HOME/.codex/config.toml" "$HOME/.claude/.credentials.json" /app/.ai-box-fresh-check; do
     test ! -e "$path"
 done
@@ -360,7 +367,7 @@ EOF
             fi
         done
         if test -n "$fresh_ok"; then
-            report_ok "fresh boxes" "programs, writable /app, no inherited login or saved state"
+            report_ok "fresh boxes" "explicit credentials only, writable /app, no saved state"
         else
             report_missing required "fresh boxes" "$fresh_line"
         fi
@@ -368,7 +375,14 @@ EOF
         # The checkout is a workspace that would reveal data/ through /app.
         # Podman copies the underlying files into tmpfs unless told not to.
         if fresh_app_line=$(cd "$scriptdir/.." && env -u GIT -u REPOS -u REPOS_PICK -u SOCKETS -u AGENTDIR -u MASK \
-            FRESH=app "$scriptdir/run" bash -seu 2>&1 <<'EOF'
+            FRESH=app CODEX_API_KEY=ai-box-self-check OPENAI_API_KEY=ai-box-self-check \
+            CLAUDE_CODE_OAUTH_TOKEN=ai-box-self-check "$scriptdir/run" bash -seu 2>&1 <<'EOF'
+test "${CODEX_API_KEY:-}" = ai-box-self-check
+test "${OPENAI_API_KEY:-}" = ai-box-self-check
+test "${CLAUDE_CODE_OAUTH_TOKEN:-}" = ai-box-self-check
+for path in "$HOME/.codex/auth.json" "$HOME/.claude/.credentials.json"; do
+    test ! -e "$path"
+done
 mountpoint -q /app/data
 test -z "$(ls -A /app/data)"
 touch /app/data/.ai-box-fresh-check
