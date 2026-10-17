@@ -605,6 +605,16 @@ box=(podman run --rm -i "${tty[@]}" \
     --sysctl net.ipv4.ping_group_range="1000 1000" \
     ai-box "$@")
 
+# Every start adds one line to data/logs/run.log: the time and the podman
+# command as it runs, each argument quoted, so a box can be told apart from
+# the next after its terminal is gone. A log that cannot be written is a
+# warning: it must not keep you from your agents.
+run_log=$data/logs/run.log
+run_line="[$(TZ=Europe/Chisinau date '+%F %T %Z')]$(printf ' %q' "${box[@]}")"
+if ! { mkdir -p "$data/logs" && echo "$run_line" >> "$run_log"; } 2>/dev/null; then
+    echo "warning: could not write $run_log" >&2
+fi
+
 # The box ends with bin/run. `podman run` is only a client: the container
 # runs under conmon, and when podman run is killed the container runs on.
 # That is how an agent outlived the shell Visual Notes had ended (SIGHUP to

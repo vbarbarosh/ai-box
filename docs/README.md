@@ -195,6 +195,7 @@ data/codex/   data/codex.json
 data/images/                       shared image store, for inner docker run
 data/extras/                       browsers, whisper model, Chrome, agent CLIs
 data/refresh                       the ISO week of the last finished build
+data/logs/                         each build's output; run.log, every bin/run's podman command
 ```
 
 The names lose their leading dots on this side of the mount -- nothing here is
