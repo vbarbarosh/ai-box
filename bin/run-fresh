@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# http://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
+# http://redsymbol.net/articles/unofficial-bash-strict-mode
+set -o nounset -o errexit -o pipefail
+
+script=`realpath $0`
+scriptdir=`dirname $script`
+scriptname=`basename $script`
+
+# Keep signal handling, resource limits and image checks in the one launcher.
+export FRESH=${FRESH:-1}
+exec "$scriptdir/run" "$@"

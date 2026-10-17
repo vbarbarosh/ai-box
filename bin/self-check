@@ -326,6 +326,60 @@ if test -n "$deep"; then
         else
             report_missing required "container inside box" "$nested_line"
         fi
+
+        # Two separate boxes must both start without credentials or the
+        # previous box's files. No real token or model request is needed.
+        fresh_ok=1
+        for attempt in 1 2; do
+            if ! fresh_line=$(env -u GIT -u REPOS -u REPOS_PICK -u SOCKETS -u AGENTDIR -u MASK \
+                FRESH=1 CODEX_API_KEY=ai-box-self-check CODEX_ACCESS_TOKEN=ai-box-self-check \
+                OPENAI_API_KEY=ai-box-self-check CLAUDE_CODE_OAUTH_TOKEN=ai-box-self-check \
+                "$scriptdir/run-fresh" bash -seu 2>&1 <<'EOF'
+test -z "${CODEX_API_KEY:-}${CODEX_ACCESS_TOKEN:-}${OPENAI_API_KEY:-}${CLAUDE_CODE_OAUTH_TOKEN:-}"
+for path in "$HOME/.codex/auth.json" "$HOME/.codex/config.toml" "$HOME/.claude/.credentials.json" /app/.ai-box-fresh-check; do
+    test ! -e "$path"
+done
+for path in /repos /sockets /agentdir /run/git /var/lib/shared; do
+    if mountpoint -q "$path"; then
+        exit 1
+    fi
+done
+command -v claude >/dev/null
+command -v codex >/dev/null
+test "$(findmnt -n -o FSTYPE --target /app)" = tmpfs
+touch /app/.ai-box-fresh-check "$HOME/.codex/auth.json"
+echo fresh-ok
+EOF
+            ); then
+                fresh_ok=
+                break
+            fi
+            if test "$(echo "$fresh_line" | tr -d '\r' | tail -1)" != fresh-ok; then
+                fresh_ok=
+                break
+            fi
+        done
+        if test -n "$fresh_ok"; then
+            report_ok "fresh boxes" "programs, writable /app, no inherited login or saved state"
+        else
+            report_missing required "fresh boxes" "$fresh_line"
+        fi
+
+        # The checkout is a workspace that would reveal data/ through /app.
+        # Podman copies the underlying files into tmpfs unless told not to.
+        if fresh_app_line=$(cd "$scriptdir/.." && env -u GIT -u REPOS -u REPOS_PICK -u SOCKETS -u AGENTDIR -u MASK \
+            FRESH=app "$scriptdir/run" bash -seu 2>&1 <<'EOF'
+mountpoint -q /app/data
+test -z "$(ls -A /app/data)"
+touch /app/data/.ai-box-fresh-check
+echo fresh-app-ok
+EOF
+        ) && test "$(echo "$fresh_app_line" | tr -d '\r' | tail -1)" = fresh-app-ok \
+            && ! test -e "$data/.ai-box-fresh-check"; then
+            report_ok "fresh workspace" "checkout data hidden; host state unchanged"
+        else
+            report_missing required "fresh workspace" "$fresh_app_line"
+        fi
     else
         report_missing optional "container inside box" "no image yet; bin/build"
     fi

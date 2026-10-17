@@ -65,6 +65,11 @@ bin/images         # list the shared image store; add: bin/images mysql:8.0
 bin/run            # open the box on the current directory
 bin/run claude     # ...and go straight into an agent
 bin/run make test  # ...or run one command and exit
+bin/run-fresh      # programs only: no workspace, saved settings or login
+bin/run-fresh codex
+FRESH=1 bin/run    # the same fresh mode through the ordinary launcher
+FRESH=app bin/run-fresh
+                   # fresh settings, with the current folder at /app
 AGENTDIR=~/w/kb/app-visual-notes/data/notes/<id> bin/run claude
                    # ...with a Visual Notes note at /agentdir
 REPOS=~/w bin/run claude
@@ -94,6 +99,51 @@ Your ssh-agent stays outside too. `SSH_AUTH_SOCK` is not passed into the box,
 and `bin/run` refuses to start when the workspace, `REPOS`, `SOCKETS` or
 `AGENTDIR` holds the agent's socket (a box started from `/tmp` would see
 `/tmp/ssh-*/agent.*` and could use every key in it). `pull` and `push` use the agent on the host.
+
+### A fresh environment
+
+`bin/run-fresh` is a shortcut for `FRESH=1 bin/run`. It keeps the installed
+programs, but starts without your workspace, saved Claude/Codex settings or
+logins, repositories, service sockets, agentdir, Git relays or shared image
+store. `/app` is an empty writable temporary filesystem. The image's defaults
+stay in place, network access stays on, and the box's files disappear on exit.
+No image rebuild is needed.
+
+`FRESH=app bin/run` (or `FRESH=app bin/run-fresh`) also mounts the current
+folder. This keeps the ordinary home-directory and ssh-agent checks, read-only
+`.git` and secret-file masks. Without that mount, the workspace checks are
+skipped, so a fresh box may start from your home directory or `/`. When the
+workspace contains ai-box's `data/`, an empty temporary mount hides that state;
+a workspace inside `data/` is refused. Files written to the mounted workspace
+stay on the host; the fresh home and temporary files disappear on exit.
+
+The one host directory still mounted is `data/extras`, at `/opt/extras` with
+the ordinary temporary overlay: the agents and browsers live there, and the
+box cannot change the host copy. This is not a zero-mount image. The launcher
+still writes its command to `data/logs/run.log`, outside the box.
+
+Fresh mode refuses nonempty `GIT`, `REPOS`, `REPOS_PICK`, `SOCKETS` or `AGENTDIR`
+rather than silently dropping a request to mount something. `MASK` is allowed
+only with `FRESH=app`. Unset or empty `FRESH` keeps `bin/run`'s ordinary behavior;
+other values are errors. `bin/run-fresh` defaults an unset or empty `FRESH` to
+`1` and passes commands and their arguments to `bin/run` unchanged.
+
+Fresh mode does not forward authentication environment variables. For token
+testing, open `bin/run-fresh`, then enter the token **inside that shell**:
+
+```bash
+read -rsp 'Access token: ' test_token; echo
+printf '%s' "$test_token" | codex login --with-access-token
+unset test_token
+codex exec --skip-git-repo-check 'Reply with OK.'
+```
+
+For an API key use `codex login --with-api-key` in place of
+`--with-access-token`. Stay in the same box for login and the request: a new
+`bin/run-fresh` invocation starts clean again. A login-status check only shows
+that credentials are present; a successful request verifies access for that
+request. Authentication, quota, model access and network failures are distinct.
+See [the official Codex login reference](https://learn.chatgpt.com/docs/developer-commands?surface=cli#codex-login).
 
 ### What `bin/run` gives the box
 

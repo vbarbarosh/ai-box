@@ -8,29 +8,57 @@ script=`realpath $0`
 scriptdir=`dirname $script`
 scriptname=`basename $script`
 
+# A fresh box keeps only the programs in data/extras. Mounting the workspace
+# is a separate choice; the host's default repos and sockets never follow it.
+fresh=${FRESH:-}
+case "$fresh" in
+    ""|1|app) ;;
+    *)
+        echo "error: FRESH=$fresh; use 1 (no workspace) or app (current folder)" >&2
+        exit 1 ;;
+esac
+if test -n "$fresh"; then
+    for name in GIT REPOS REPOS_PICK SOCKETS AGENTDIR; do
+        if test -n "${!name:-}"; then
+            echo "error: FRESH cannot be combined with $name; unset it for a fresh box" >&2
+            exit 1
+        fi
+    done
+    if test "$fresh" = 1 && test -n "${MASK:-}"; then
+        echo "error: MASK needs a workspace; use FRESH=app or unset MASK" >&2
+        exit 1
+    fi
+    REPOS_PICK=
+    SOCKETS=
+fi
+
 # The workspace is the directory you ran this from, handed to the box
 # read-write as /app. From $HOME that would be every dotfile, key and
 # repository at once -- and so would any directory that contains $HOME,
 # or / itself. Compare resolved paths, so a symlink cannot slip past.
-workspace=$(realpath "$PWD")
-home=$(realpath "$HOME")
+workspace=
+home=
+if test "$fresh" != 1; then
+    workspace=$(realpath "$PWD")
+    home=$(realpath "$HOME")
 
-if test "$workspace" = /; then
-    echo "error: refusing to mount / as the workspace" >&2
-    exit 1
+    if test "$workspace" = /; then
+        echo "error: refusing to mount / as the workspace" >&2
+        exit 1
+    fi
+    case "$home/" in
+        "$workspace"/*)
+            echo "error: $workspace contains your home directory ($home);" >&2
+            echo "       running from here would hand every dotfile and key to the box." >&2
+            exit 1 ;;
+    esac
 fi
-case "$home/" in
-    "$workspace"/*)
-        echo "error: $workspace contains your home directory ($home);" >&2
-        echo "       running from here would hand every dotfile and key to the box." >&2
-        exit 1 ;;
-esac
 
 # Your ssh-agent stays outside. podman passes no variable it is not given, so
 # SSH_AUTH_SOCK never enters; but a mount that holds the socket hands it in,
 # and the box signs with every key the agent holds. Read-only does not help.
 agent=
-if test -S "${SSH_AUTH_SOCK:-}"; then
+if test -n "$workspace" && test -S "${SSH_AUTH_SOCK:-}"; then
     agent=$(realpath "$SSH_AUTH_SOCK")
 fi
 refuse_agent () {
@@ -41,7 +69,9 @@ refuse_agent () {
             exit 1 ;;
     esac
 }
-refuse_agent "the workspace" "$workspace"
+if test -n "$workspace"; then
+    refuse_agent "the workspace" "$workspace"
+fi
 
 # Fail fast when the image is not built. Without this podman treats `ai-box` as
 # a short name and tries to pull it from a registry, which on a host with
@@ -74,9 +104,11 @@ data="$(dirname "$scriptdir")/data"
 # Bind-mounting a path that does not exist makes a directory of it, and the
 # agents want files. Create them as `{}` rather than let that happen: an
 # empty one is not JSON, and claude reports it corrupted ("Unexpected EOF").
-mkdir -p "$data/codex" "$data/claude"
-test -s "$data/codex.json" || echo '{}' > "$data/codex.json"
-test -s "$data/claude.json" || echo '{}' > "$data/claude.json"
+if test -z "$fresh"; then
+    mkdir -p "$data/codex" "$data/claude"
+    test -s "$data/codex.json" || echo '{}' > "$data/codex.json"
+    test -s "$data/claude.json" || echo '{}' > "$data/claude.json"
+fi
 
 # The browsers, the whisper model, Chrome and both agent CLIs are not in the
 # image: bin/build fills data/extras with them (notes/extras.md), the agents
@@ -95,6 +127,30 @@ if ! test -f "$data/extras/versions"; then
 fi
 
 opts=()
+
+# Running from ai-box itself must not reveal its saved logins through
+# /app/data. A temporary mount with copy-up disabled hides that subtree, even
+# when the workspace is an ancestor of the checkout. A workspace inside data/
+# cannot be made fresh, so refuse it rather than expose part of the state.
+if test -n "$workspace"; then
+    opts+=(-v "$workspace:/app")
+    if test "$fresh" = app; then
+        data_resolved=$(realpath -m "$data")
+        case "$workspace/" in
+            "$data_resolved"/*)
+                echo "error: FRESH=app cannot mount a workspace inside $data" >&2
+                exit 1 ;;
+        esac
+        case "$data_resolved/" in
+            "$workspace"/*)
+                opts+=(--tmpfs "/app/${data_resolved#"$workspace"/}:rw,exec,nosuid,nodev,mode=1777,notmpcopyup") ;;
+        esac
+    fi
+else
+    # WORKDIR /app in the image is root-owned. Give ubuntu a writable empty
+    # workspace without binding any folder from the host.
+    opts+=(--tmpfs "/app:rw,exec,nosuid,nodev,mode=1777,notmpcopyup")
+fi
 
 # Short-lived files of this run: the container's id, and with GIT=commit the
 # relay scripts and their sockets. Gone when bin/run ends.
@@ -129,7 +185,7 @@ for name in AI_BOX_MASK AI_BOX_PIDS AI_BOX_MEMORY AI_BOX_CPUS; do
         exit 1
     fi
 done
-if test -e "$workspace/.git"; then
+if test -n "$workspace" && test -e "$workspace/.git"; then
     opts+=(-v "$workspace/.git:/app/.git:ro")
 fi
 
@@ -140,15 +196,17 @@ fi
 # MASK adds more names, space-separated, relative to the workspace:
 #   MASK="credentials.json service-account.pem" bin/run
 masked_paths=()
-shopt -s nullglob dotglob
-for f in "$workspace"/.env "$workspace"/.env.* ${MASK:-}; do
-    f="${f#"$workspace"/}"
-    case "$f" in *.example|*.sample|*.template|*.dist) continue ;; esac
-    test -f "$workspace/$f" || continue
-    opts+=(-v "/dev/null:/app/$f:ro")
-    masked_paths+=("$f")
-done
-shopt -u nullglob dotglob
+if test -n "$workspace"; then
+    shopt -s nullglob dotglob
+    for f in "$workspace"/.env "$workspace"/.env.* ${MASK:-}; do
+        f="${f#"$workspace"/}"
+        case "$f" in *.example|*.sample|*.template|*.dist) continue ;; esac
+        test -f "$workspace/$f" || continue
+        opts+=(-v "/dev/null:/app/$f:ro")
+        masked_paths+=("$f")
+    done
+    shopt -u nullglob dotglob
+fi
 
 # GIT=commit: the box holds no key and cannot write .git, so the host does the
 # git work. `commit`, `push` and `pull` inside the box each connect to a socket
@@ -475,16 +533,20 @@ fi
 #   CLAUDE_CODE_OAUTH_TOKEN  claude prefers it to the shared sign-in
 #   CODEX_API_KEY            codex prefers it to the shared sign-in
 #   OPENAI_API_KEY           for other tools; codex 0.163 ignores it
-for name in CLAUDE_CODE_OAUTH_TOKEN CODEX_API_KEY OPENAI_API_KEY; do
-    if test -n "${!name:-}"; then
-        opts+=(--env "$name")
-    fi
-done
+# Fresh token tests must not fall back to a token inherited from the host.
+# Enter the credential being tested inside the fresh box instead.
+if test -z "$fresh"; then
+    for name in CLAUDE_CODE_OAUTH_TOKEN CODEX_API_KEY OPENAI_API_KEY; do
+        if test -n "${!name:-}"; then
+            opts+=(--env "$name")
+        fi
+    done
 
-opts+=(-v "$data/codex.json:/home/ubuntu/.codex.json")
-opts+=(-v "$data/claude.json:/home/ubuntu/.claude.json")
-opts+=(-v "$data/codex:/home/ubuntu/.codex")
-opts+=(-v "$data/claude:/home/ubuntu/.claude")
+    opts+=(-v "$data/codex.json:/home/ubuntu/.codex.json")
+    opts+=(-v "$data/claude.json:/home/ubuntu/.claude.json")
+    opts+=(-v "$data/codex:/home/ubuntu/.codex")
+    opts+=(-v "$data/claude:/home/ubuntu/.claude")
+fi
 
 # :O, an overlay: the host's folder is the lower layer and no box writes it,
 # while a box may still write there -- a project's own `npx playwright
@@ -504,7 +566,7 @@ opts+=(-v "$data/extras:/opt/extras:O")
 # ($store/overlay/$layer/merged), and read-only turns every such `docker build`
 # into "removing mount point ...: read-only file system". Only those transient
 # mountpoints are written; the images themselves are left alone.
-if test -d "$data/images"; then
+if test -z "$fresh" && test -d "$data/images"; then
     opts+=(-v "$data/images:/var/lib/shared")
 fi
 
@@ -594,7 +656,6 @@ box=(podman run --rm -i "${tty[@]}" \
     --pull=never \
     --shm-size=2g \
     "${opts[@]}" \
-    -v "$workspace:/app" \
     "--userns=keep-id:uid=1000,gid=1000" \
     --user 0 \
     --device /dev/fuse \
