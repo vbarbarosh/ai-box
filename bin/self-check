@@ -335,7 +335,7 @@ if test -n "$deep"; then
             if test "$attempt" = 2; then
                 fresh_token=
             fi
-            if ! fresh_line=$(env -u GIT -u REPOS -u REPOS_PICK -u SOCKETS -u AGENTDIR -u MASK \
+            if ! fresh_line=$(env -u GIT -u REPOS -u REPOS_PICK -u SOCKETS -u AGENTDIR -u MASK -u READONLY \
                 FRESH=1 CODEX_API_KEY="$fresh_token" CODEX_ACCESS_TOKEN=ai-box-self-check \
                 OPENAI_API_KEY="$fresh_token" CLAUDE_CODE_OAUTH_TOKEN="$fresh_token" \
                 "$scriptdir/run-fresh" bash -seu -- "$fresh_token" 2>&1 <<'EOF'
@@ -374,7 +374,7 @@ EOF
 
         # The checkout is a workspace that would reveal data/ through /app.
         # Podman copies the underlying files into tmpfs unless told not to.
-        if fresh_app_line=$(cd "$scriptdir/.." && env -u GIT -u REPOS -u REPOS_PICK -u SOCKETS -u AGENTDIR -u MASK \
+        if fresh_app_line=$(cd "$scriptdir/.." && env -u GIT -u REPOS -u REPOS_PICK -u SOCKETS -u AGENTDIR -u MASK -u READONLY \
             FRESH=app CODEX_API_KEY=ai-box-self-check OPENAI_API_KEY=ai-box-self-check \
             CLAUDE_CODE_OAUTH_TOKEN=ai-box-self-check "$scriptdir/run" bash -seu 2>&1 <<'EOF'
 test "${CODEX_API_KEY:-}" = ai-box-self-check
@@ -394,6 +394,71 @@ EOF
         else
             report_missing required "fresh workspace" "$fresh_app_line"
         fi
+
+        # The host publishes into a protected folder after the box is ready;
+        # the same box must see it while still refusing writes of its own.
+        readonly_dir=$(mktemp -d)
+        mkdir -p "$readonly_dir/note/messages" "$readonly_dir/note/markers" "$readonly_dir/workspace/reference"
+        ln -s "$readonly_dir/note" "$readonly_dir/workspace/link"
+        readonly_paths_ok=1
+        for inside in /etc /agentdir/../x /app/./reference /app/reference:rw /app/link; do
+            if readonly_line=$(cd "$readonly_dir/workspace" && env -u GIT -u FRESH -u MASK \
+                REPOS_PICK= SOCKETS= AGENTDIR="$readonly_dir/note" READONLY="$inside" \
+                timeout 15 "$scriptdir/run" true 2>&1 </dev/null); then
+                readonly_paths_ok=
+                break
+            fi
+            if test "${readonly_line#*error: READONLY}" = "$readonly_line"; then
+                readonly_paths_ok=
+                break
+            fi
+        done
+        if test -n "$readonly_paths_ok"; then
+            report_ok "read-only paths" "outside paths, traversal, volume options and symlinks refused"
+        else
+            report_missing required "read-only paths" "$inside: $readonly_line"
+        fi
+        echo host-published > "$readonly_dir/pending"
+        (
+            for attempt in $(seq 120); do
+                if test -f "$readonly_dir/note/markers/ready"; then
+                    mv "$readonly_dir/pending" "$readonly_dir/note/messages/published"
+                    exit 0
+                fi
+                sleep 1
+            done
+            exit 1
+        ) &
+        readonly_writer=$!
+        if readonly_line=$(cd "$readonly_dir/workspace" && env -u GIT -u FRESH -u MASK \
+            REPOS_PICK= SOCKETS= AGENTDIR="$readonly_dir/note" \
+            READONLY='/agentdir/messages /app/reference /agentdir/messages/' \
+            timeout 150 "$scriptdir/run" bash -seu 2>&1 <<'EOF'
+for path in /agentdir/messages /app/reference; do
+    if touch "$path/blocked" 2>/tmp/readonly-error; then
+        exit 1
+    fi
+    grep -q 'Read-only file system' /tmp/readonly-error
+done
+touch /app/writable /agentdir/markers/ready
+for attempt in $(seq 120); do
+    if test -f /agentdir/messages/published; then
+        test "$(cat /agentdir/messages/published)" = host-published
+        echo readonly-ok
+        exit 0
+    fi
+    sleep 1
+done
+exit 1
+EOF
+        ) && test "$(echo "$readonly_line" | tr -d '\r' | tail -1)" = readonly-ok; then
+            report_ok "read-only folders" "writes refused, siblings writable, host rename visible"
+        else
+            report_missing required "read-only folders" "$readonly_line"
+        fi
+        kill "$readonly_writer" 2>/dev/null || true
+        wait "$readonly_writer" 2>/dev/null || true
+        rm -rf "$readonly_dir"
     else
         report_missing optional "container inside box" "no image yet; bin/build"
     fi

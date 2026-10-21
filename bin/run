@@ -28,6 +28,10 @@ if test -n "$fresh"; then
         echo "error: MASK needs a workspace; use FRESH=app or unset MASK" >&2
         exit 1
     fi
+    if test "$fresh" = 1 && test -n "${READONLY:-}"; then
+        echo "error: READONLY needs a host mount; use FRESH=app or unset READONLY" >&2
+        exit 1
+    fi
     REPOS_PICK=
     SOCKETS=
 fi
@@ -568,6 +572,50 @@ opts+=(-v "$data/extras:/opt/extras:O")
 if test -z "$fresh" && test -d "$data/images"; then
     opts+=(-v "$data/images:/var/lib/shared")
 fi
+
+# Selected folders are rebound read-only after the ordinary mounts. Split
+# without glob expansion: a name containing * is a literal folder name.
+# Symlinks are refused so a path under /app cannot import an outside folder.
+# Missing folders (or an absent AGENTDIR) do not create mounts.
+readonly_paths=()
+read -r -d '' -a readonly_paths <<<"${READONLY:-}" || true
+declare -A readonly_seen=()
+for inside in "${readonly_paths[@]}"; do
+    inside=${inside%/}
+    case "$inside/" in
+        */./*|*/../*|*//*|*:*)
+            echo "error: READONLY takes plain paths, no ., .., empty components or colons: $inside" >&2
+            exit 1 ;;
+    esac
+    case "$inside" in
+        /agentdir/?*) outside=${agentdir:+$agentdir/${inside#/agentdir/}} ;;
+        /app/?*) outside=${workspace:+$workspace/${inside#/app/}} ;;
+        *)
+            echo "error: READONLY names folders under /agentdir or /app: $inside" >&2
+            exit 1 ;;
+    esac
+    if test -z "$outside" || ! test -d "$outside"; then
+        continue
+    fi
+    if test "$(realpath -e "$outside")" != "$outside"; then
+        echo "error: READONLY cannot follow symlinks: $inside" >&2
+        exit 1
+    fi
+    if test "$fresh" = app; then
+        case "$outside/" in
+            "$data_resolved"/*)
+                echo "error: READONLY cannot expose saved state hidden by FRESH=app: $inside" >&2
+                exit 1 ;;
+        esac
+    fi
+    if test -z "${readonly_seen[$inside]+set}"; then
+        # .git already has this exact mount; Podman refuses duplicate targets.
+        if test "$inside" != /app/.git; then
+            opts+=(-v "$outside:$inside:ro")
+        fi
+        readonly_seen[$inside]=1
+    fi
+done
 
 # Limits on the box as a whole -- the inner engine has cgroups disabled, so
 # nothing inside can limit itself, and without these a runaway inner build

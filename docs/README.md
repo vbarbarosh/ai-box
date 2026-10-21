@@ -171,6 +171,7 @@ See [the official Codex login reference](https://learn.chatgpt.com/docs/develope
 | `~/repos` → `/repos` | ro | or `$REPOS` when set; set but empty, no `/repos`. `REPOS_PICK="a b"` mounts only those repositories of it, each at `/repos/<name>`, a missing or symlinked one skipped with a line on stderr; set but empty, no `/repos`. The `.env` and `.env.*` at the top of each repository in it are hidden as the workspace's are; a workspace inside it is hidden there as at `/app`, `MASK` included |
 | `~/sockets` → `/sockets` | ro | or `$SOCKETS` when set; set but empty, no `/sockets`. The host's sockets for the box to talk to: read-only still connects, and the folder is mounted rather than each socket, so a service that starts again with a new socket is still reached |
 | `$AGENTDIR` → `/agentdir` | rw | a Visual Notes note, when `AGENTDIR` is set |
+| `$READONLY` | ro | space-separated paths in the box, each a folder under `/agentdir` or `/app`, mounted again read-only after the other bind mounts |
 | `data/claude{,.json}` → `~/.claude{,.json}` | rw | so the agent keeps its login and history |
 | `data/codex{,.json}` → `~/.codex{,.json}` | rw | same |
 | `data/images` → `/var/lib/shared` | rw | the shared image store, when it exists |
@@ -185,6 +186,21 @@ otherwise be created as a directory and the agents want files there.
 
 Those paths are relative to **this repo**, not to the directory you run from --
 see [Where the box keeps its state](#where-the-box-keeps-its-state).
+
+`READONLY='/agentdir/messages /app/reference' bin/run` makes those folders
+read-only while their siblings stay writable. Host additions and renames
+inside them remain visible immediately. Unset or empty, it adds no mounts;
+missing folders, files and paths under an unset `AGENTDIR` are skipped.
+Paths must name descendants of those two mounts: `/etc`, the mount roots,
+`.` or `..` components, repeated slashes, colons and symlink paths are
+refused. A trailing slash is allowed; duplicate paths add only one mount.
+Spaces in folder names cannot be represented in this list.
+
+`FRESH=1` refuses nonempty `READONLY`, since it has no host workspace or
+agent folder. `FRESH=app` allows workspace folders but refuses paths into
+the saved state it hides. Existing `.git` protection and secret-file masks
+still apply. Protection is at the named mount path; another writable mount
+of the same host folder would still allow writes through that other path.
 
 #### Its own sign-in
 
