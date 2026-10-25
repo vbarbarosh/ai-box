@@ -88,6 +88,7 @@ CLAUDE_CODE_OAUTH_TOKEN=... bin/run claude
 
 bin/usage          # rate-limit usage of the agents the box is logged in to,
                    # Claude and GPT side by side; reads data/, starts nothing
+bin/run --help     # what a command takes; each one here answers -h and --help
 ```
 
 `bin/run` refuses to start from `$HOME`, from any directory that contains it,

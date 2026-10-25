@@ -11,9 +11,6 @@ scriptname=`basename $script`
 BLACK="\e[30m" RED="\e[31m" GREEN="\e[32m" YELLOW="\e[33m" BLUE="\e[34m"
 PURPLE="\e[35m" CYAN="\e[36m" WHITE="\e[37m" RESET="\e[0m"
 
-EXIT_MESSAGE="${RED}bin/self-check failed${RESET}"
-trap 'echo -e "$EXIT_MESSAGE"' EXIT
-
 # Reports what the host has and what it lacks. Exits non-zero if anything
 # required is missing, so it can gate a build in CI. `bin/configure` installs
 # whatever this reports.
@@ -22,15 +19,26 @@ trap 'echo -e "$EXIT_MESSAGE"' EXIT
 #   bin/self-check --deep     also starts the box and runs a container inside it
 #   bin/self-check --versions also lists what the image was built with
 
+usage_print () {
+    echo "usage: $scriptname              report what the host has and lacks"
+    echo "       $scriptname --deep       also start the box and run a container inside it"
+    echo "       $scriptname --versions   also list what the image was built with"
+    echo "Exits non-zero when a required item is missing."
+}
+
 deep=
 versions=
 for arg in "$@"; do
     case "$arg" in
         --deep)     deep=1 ;;
         --versions) versions=1 ;;
-        *) echo "usage: $scriptname [--deep] [--versions]" >&2; exit 1 ;;
+        -h|--help)  usage_print; exit 0 ;;
+        *) usage_print >&2; exit 1 ;;
     esac
 done
+
+EXIT_MESSAGE="${RED}bin/self-check failed${RESET}"
+trap 'echo -e "$EXIT_MESSAGE"' EXIT
 
 if test -t 1; then
     green=$'\e[32m'; red=$'\e[31m'; yellow=$'\e[33m'; dim=$'\e[2m'; reset=$'\e[0m'

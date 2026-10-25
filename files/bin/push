@@ -14,6 +14,12 @@ scriptname=`basename $script`
 
 sock=/run/git/push.sock
 
+case "${1:-}" in
+    -h|--help)
+        echo "usage: $scriptname"
+        echo "Pushes $(cat /run/git/branch 2>/dev/null || echo 'the branch the box was started on') to origin, through the host; a GIT=commit box only."
+        exit 0 ;;
+esac
 if test $# -gt 0; then
     echo "$scriptname: takes no arguments; it pushes $(cat /run/git/branch 2>/dev/null || echo 'the branch the box was started on') to origin" >&2
     exit 1

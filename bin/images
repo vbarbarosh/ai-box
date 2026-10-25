@@ -28,6 +28,19 @@ EXIT_MESSAGE="${RED}bin/images failed${RESET}"
 # writes an auth file this reads, and the box never sees the credential --
 # only the image, already pulled.
 
+usage_print () {
+    echo "usage: $scriptname                       list what the box will find in the store"
+    echo "       $scriptname <image>...            add images to it: $scriptname mysql:8.0 redis:7"
+    echo "       $scriptname --remove <image>...   take them out again (-r)"
+}
+
+removal=
+case "${1:-}" in
+    --remove|-r) removal=1; shift ;;
+    -h|--help)   usage_print; exit 0 ;;
+    -*)          usage_print >&2; exit 1 ;;
+esac
+
 data="$(dirname "$scriptdir")/data/images"
 store_opts=(--root "$data" --storage-driver overlay)
 
@@ -48,12 +61,6 @@ ref_from_image () {
         *)   echo "docker.io/library/$1" ;;
     esac
 }
-
-removal=
-case "${1:-}" in
-    --remove|-r) removal=1; shift ;;
-    -*)          echo "usage: $scriptname [--remove] [image...]" >&2; exit 1 ;;
-esac
 
 if test $# -eq 0; then
     if test -d "$data"; then

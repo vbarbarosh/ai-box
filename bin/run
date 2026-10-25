@@ -8,6 +8,30 @@ script=`realpath $0`
 scriptdir=`dirname $script`
 scriptname=`basename $script`
 
+usage_print () {
+    echo "usage: $scriptname [command [arg...]]"
+    echo "Opens the box on the current directory, at /app, and runs the command in it,"
+    echo "bash when none: $scriptname claude, $scriptname make test. Set in the environment:"
+    echo "  FRESH=1                programs only: no workspace, saved settings or login;"
+    echo "                         FRESH=app keeps the current directory at /app"
+    echo "  AGENTDIR=<dir>         that folder at /agentdir"
+    echo "  REPOS=<dir>            that folder at /repos, not ~/repos; empty for none"
+    echo "  REPOS_PICK='a b'       only those repositories of it at /repos"
+    echo "  SOCKETS=<dir>          that folder at /sockets, not ~/sockets; empty for none"
+    echo "  READONLY='/app/x ...'  those folders under /app or /agentdir read only"
+    echo "  MASK='a.pem b.json'    more files of the workspace hidden, as .env is"
+    echo "  GIT=commit             commit, push and pull your branch through the host"
+    echo "  PIDS, MEMORY, CPUS     the box's limits"
+    echo "  CLAUDE_CODE_OAUTH_TOKEN, CODEX_API_KEY   the agent's own sign-in"
+    echo "More in $(dirname "$scriptdir")/docs/README.md."
+}
+
+# Only the first argument: the rest is the command, and `bin/run claude
+# --help` is the agent's help.
+case "${1:-}" in
+    -h|--help) usage_print; exit 0 ;;
+esac
+
 # A fresh box keeps only the programs in data/extras. Mounting the workspace
 # is a separate choice; the host's default repos and sockets never follow it.
 fresh=${FRESH:-}

@@ -17,10 +17,10 @@ scriptname=`basename $script`
 sock=/run/git/commit.sock
 
 usage_print () {
-    echo "usage: $scriptname <file.patch>                 a git format-patch email: its message is used" >&2
-    echo "       $scriptname -m <message> <file.patch>    a plain diff; - reads it from stdin" >&2
-    echo "       $scriptname -m <message> <path>...       the patch is made here from these files" >&2
-    echo "       -m again adds a paragraph. Name every file: new, changed or deleted; no globs." >&2
+    echo "usage: $scriptname <file.patch>                 a git format-patch email: its message is used"
+    echo "       $scriptname -m <message> <file.patch>    a plain diff; - reads it from stdin"
+    echo "       $scriptname -m <message> <path>...       the patch is made here from these files"
+    echo "       -m again adds a paragraph. Name every file: new, changed or deleted; no globs."
 }
 
 message=
@@ -28,18 +28,18 @@ args=()
 while test $# -gt 0; do
     case "$1" in
         -m)
-            test $# -ge 2 || { usage_print; exit 1; }
+            test $# -ge 2 || { usage_print >&2; exit 1; }
             message="${message:+$message$'\n\n'}$2"
             shift 2 ;;
         -h|--help) usage_print; exit 0 ;;
         --) shift; args+=("$@"); break ;;
         -) args+=("$1"); shift ;;
-        -*) echo "$scriptname: unknown option $1" >&2; usage_print; exit 1 ;;
+        -*) echo "$scriptname: unknown option $1" >&2; usage_print >&2; exit 1 ;;
         *) args+=("$1"); shift ;;
     esac
 done
 if test "${#args[@]}" -eq 0; then
-    usage_print
+    usage_print >&2
     exit 1
 fi
 

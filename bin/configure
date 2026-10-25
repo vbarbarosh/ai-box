@@ -11,9 +11,6 @@ scriptname=`basename $script`
 BLACK="\e[30m" RED="\e[31m" GREEN="\e[32m" YELLOW="\e[33m" BLUE="\e[34m"
 PURPLE="\e[35m" CYAN="\e[36m" WHITE="\e[37m" RESET="\e[0m"
 
-EXIT_MESSAGE="${RED}bin/configure failed${RESET}"
-trap 'echo -e "$EXIT_MESSAGE"' EXIT
-
 # Installs everything the host needs to run the box. Idempotent: every step
 # checks first, so re-running it is a no-op that reports what is already there.
 # `bin/self-check` reports the same set without changing anything.
@@ -21,14 +18,23 @@ trap 'echo -e "$EXIT_MESSAGE"' EXIT
 #   bin/configure            install what is missing
 #   bin/configure --dry-run  print what it would do, change nothing
 
+usage_print () {
+    echo "usage: $scriptname             install what the host is missing; safe to re-run"
+    echo "       $scriptname --dry-run    print what it would do, change nothing (-n)"
+}
+
 dry=
 while test $# -gt 0; do
     case "$1" in
         --dry-run|-n) dry=1 ;;
-        *) echo "usage: $scriptname [--dry-run]" >&2; exit 1 ;;
+        -h|--help) usage_print; exit 0 ;;
+        *) usage_print >&2; exit 1 ;;
     esac
     shift
 done
+
+EXIT_MESSAGE="${RED}bin/configure failed${RESET}"
+trap 'echo -e "$EXIT_MESSAGE"' EXIT
 
 # The subordinate range has to belong to whoever will run the box. Under sudo
 # that is $SUDO_USER; as bare root there is nobody to infer, and granting the

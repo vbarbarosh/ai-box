@@ -24,11 +24,21 @@ const usage_config = {
     bar_width: 30,
 };
 const usage_column_gap = '   │   ';
+const HELP_TEXT = [
+    'usage: usage',
+    'Prints the rate-limit usage of the agents the box is logged in to, Claude and',
+    'GPT side by side; reads their logins in data/, starts nothing.',
+].join('\n');
 
 cli(main);
 
 async function main()
 {
+    if (['-h', '--help'].includes(process.argv[2])) {
+        console.log(HELP_TEXT);
+        return;
+    }
+
     console.log('🔐 Loading credentials...');
     const credentials = usage_credentials_load();
     console.log('✅ Credentials loaded.\n');

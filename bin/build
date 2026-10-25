@@ -8,6 +8,20 @@ script=`realpath $0`
 scriptdir=`dirname $script`
 scriptname=`basename $script`
 
+usage_print () {
+    echo "usage: $scriptname"
+    echo "Builds the image (tag: ai-box), fills data/extras and runs self-check --deep;"
+    echo "its whole output also goes to data/logs/build-<time>.log."
+}
+
+# Before the log and the trap: asking for the usage starts no build.
+if test $# -gt 0; then
+    case "$1" in
+        -h|--help) usage_print; exit 0 ;;
+        *) usage_print >&2; exit 1 ;;
+    esac
+fi
+
 BLACK="\e[30m" RED="\e[31m" GREEN="\e[32m" YELLOW="\e[33m" BLUE="\e[34m"
 PURPLE="\e[35m" CYAN="\e[36m" WHITE="\e[37m" RESET="\e[0m"
 
