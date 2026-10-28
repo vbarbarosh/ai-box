@@ -15,6 +15,7 @@ usage_print () {
     echo "  FRESH=1                programs only: no workspace, saved settings or login;"
     echo "                         FRESH=app keeps the current directory at /app"
     echo "  AGENTDIR=<dir>         that folder at /agentdir"
+    echo "  AGENTS=<dir>           that folder at /agents, read only"
     echo "  REPOS=<dir>            that folder at /repos, not ~/repos; empty for none"
     echo "  REPOS_PICK='a b'       only those repositories of it at /repos"
     echo "  SOCKETS=<dir>          that folder at /sockets, not ~/sockets; empty for none"
@@ -42,7 +43,7 @@ case "$fresh" in
         exit 1 ;;
 esac
 if test -n "$fresh"; then
-    for name in GIT REPOS REPOS_PICK SOCKETS AGENTDIR; do
+    for name in GIT REPOS REPOS_PICK SOCKETS AGENTDIR AGENTS; do
         if test -n "${!name:-}"; then
             echo "error: FRESH cannot be combined with $name; unset it for a fresh box" >&2
             exit 1
@@ -554,6 +555,33 @@ if test -n "$agentdir"; then
     fi
     refuse_agent AGENTDIR "$agentdir"
     opts+=(-v "$agentdir:/agentdir")
+fi
+
+# Every agent's folder, the app's notes folder read-only at /agents, so one
+# agent reads the others' conversations, plans and documents and changes none
+# of them. Its own note is one folder of it: still read-write at /agentdir, and
+# read-only at /agents/<id>. Unset or empty, no /agents.
+#   AGENTS=~/w/kb/app-visual-notes/data/notes bin/run claude
+# Set but wrong is an error, as with SOCKETS; never /, $HOME or anything
+# containing it, nor the folder of your ssh-agent's socket.
+agents=${AGENTS:-}
+if test -n "$agents"; then
+    if ! test -d "$agents"; then
+        echo "error: AGENTS is not a directory: $agents" >&2
+        exit 1
+    fi
+    agents=$(realpath "$agents")
+    case "$home/" in
+        "$agents"/*)
+            echo "error: AGENTS ($agents) contains your home directory ($home)" >&2
+            exit 1 ;;
+    esac
+    if test "$agents" = /; then
+        echo "error: refusing to mount / as AGENTS" >&2
+        exit 1
+    fi
+    refuse_agent AGENTS "$agents"
+    opts+=(-v "$agents:/agents:ro")
 fi
 
 # The agent's own sign-in, when the shell that starts the box sets one:

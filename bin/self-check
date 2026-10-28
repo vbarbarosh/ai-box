@@ -296,6 +296,13 @@ elif test -d "$SOCKETS"; then
 else
     report_missing required 'SOCKETS'     "not a directory: $SOCKETS"
 fi
+if test -z "${AGENTS:-}"; then
+    report_ok 'AGENTS'      "not set: no /agents"
+elif test -d "$AGENTS"; then
+    report_ok 'AGENTS'      "$AGENTS as /agents, read-only"
+else
+    report_missing required 'AGENTS'      "not a directory: $AGENTS"
+fi
 
 echo
 echo "sign-ins bin/run will pass ${dim}(by name, never written to $short)${reset}"
@@ -343,7 +350,7 @@ if test -n "$deep"; then
             if test "$attempt" = 2; then
                 fresh_token=
             fi
-            if ! fresh_line=$(env -u GIT -u REPOS -u REPOS_PICK -u SOCKETS -u AGENTDIR -u MASK -u READONLY \
+            if ! fresh_line=$(env -u GIT -u REPOS -u REPOS_PICK -u SOCKETS -u AGENTDIR -u AGENTS -u MASK -u READONLY \
                 FRESH=1 CODEX_API_KEY="$fresh_token" CODEX_ACCESS_TOKEN=ai-box-self-check \
                 OPENAI_API_KEY="$fresh_token" CLAUDE_CODE_OAUTH_TOKEN="$fresh_token" \
                 "$scriptdir/run-fresh" bash -seu -- "$fresh_token" 2>&1 <<'EOF'
@@ -354,7 +361,7 @@ test -z "${CODEX_ACCESS_TOKEN:-}"
 for path in "$HOME/.codex/auth.json" "$HOME/.codex/config.toml" "$HOME/.claude/.credentials.json" /app/.ai-box-fresh-check; do
     test ! -e "$path"
 done
-for path in /repos /sockets /agentdir /run/git /var/lib/shared; do
+for path in /repos /sockets /agentdir /agents /run/git /var/lib/shared; do
     if mountpoint -q "$path"; then
         exit 1
     fi
@@ -382,7 +389,7 @@ EOF
 
         # The checkout is a workspace that would reveal data/ through /app.
         # Podman copies the underlying files into tmpfs unless told not to.
-        if fresh_app_line=$(cd "$scriptdir/.." && env -u GIT -u REPOS -u REPOS_PICK -u SOCKETS -u AGENTDIR -u MASK -u READONLY \
+        if fresh_app_line=$(cd "$scriptdir/.." && env -u GIT -u REPOS -u REPOS_PICK -u SOCKETS -u AGENTDIR -u AGENTS -u MASK -u READONLY \
             FRESH=app CODEX_API_KEY=ai-box-self-check OPENAI_API_KEY=ai-box-self-check \
             CLAUDE_CODE_OAUTH_TOKEN=ai-box-self-check "$scriptdir/run" bash -seu 2>&1 <<'EOF'
 test "${CODEX_API_KEY:-}" = ai-box-self-check
@@ -411,7 +418,7 @@ EOF
         readonly_paths_ok=1
         for inside in /etc /agentdir/../x /app/./reference /app/reference:rw /app/link; do
             if readonly_line=$(cd "$readonly_dir/workspace" && env -u GIT -u FRESH -u MASK \
-                REPOS_PICK= SOCKETS= AGENTDIR="$readonly_dir/note" READONLY="$inside" \
+                REPOS_PICK= SOCKETS= AGENTS= AGENTDIR="$readonly_dir/note" READONLY="$inside" \
                 timeout 15 "$scriptdir/run" true 2>&1 </dev/null); then
                 readonly_paths_ok=
                 break
@@ -439,7 +446,7 @@ EOF
         ) &
         readonly_writer=$!
         if readonly_line=$(cd "$readonly_dir/workspace" && env -u GIT -u FRESH -u MASK \
-            REPOS_PICK= SOCKETS= AGENTDIR="$readonly_dir/note" \
+            REPOS_PICK= SOCKETS= AGENTS= AGENTDIR="$readonly_dir/note" \
             READONLY='/agentdir/messages /app/reference /agentdir/messages/' \
             timeout 150 "$scriptdir/run" bash -seu 2>&1 <<'EOF'
 for path in /agentdir/messages /app/reference; do

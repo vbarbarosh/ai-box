@@ -72,6 +72,8 @@ FRESH=app bin/run-fresh
                    # fresh settings, with the current folder at /app
 AGENTDIR=~/w/kb/app-visual-notes/data/notes/<id> bin/run claude
                    # ...with a Visual Notes note at /agentdir
+AGENTS=~/w/kb/app-visual-notes/data/notes bin/run claude
+                   # ...with every agent's note at /agents, read only
 REPOS=~/w bin/run claude
                    # ...with ~/w at /repos instead of ~/repos; REPOS= for none
 REPOS_PICK='rules infra' bin/run claude
@@ -97,18 +99,19 @@ that would be every dotfile and key at once. Paths are resolved first, so a
 symlink does not get around it.
 
 Your ssh-agent stays outside too. `SSH_AUTH_SOCK` is not passed into the box,
-and `bin/run` refuses to start when the workspace, `REPOS`, `SOCKETS` or
-`AGENTDIR` holds the agent's socket (a box started from `/tmp` would see
-`/tmp/ssh-*/agent.*` and could use every key in it). `pull` and `push` use the agent on the host.
+and `bin/run` refuses to start when the workspace, `REPOS`, `SOCKETS`,
+`AGENTDIR` or `AGENTS` holds the agent's socket (a box started from `/tmp`
+would see `/tmp/ssh-*/agent.*` and could use every key in it). `pull` and
+`push` use the agent on the host.
 
 ### A fresh environment
 
 `bin/run-fresh` is a shortcut for `FRESH=1 bin/run`. It keeps the installed
 programs, but starts without your workspace, saved Claude/Codex settings or
-logins, repositories, service sockets, agentdir, Git relays or shared image
-store. `/app` is an empty writable temporary filesystem. The image's defaults
-stay in place, network access stays on, and the box's files disappear on exit.
-No image rebuild is needed.
+logins, repositories, service sockets, agentdir, other agents' notes, Git
+relays or shared image store. `/app` is an empty writable temporary
+filesystem. The image's defaults stay in place, network access stays on, and
+the box's files disappear on exit. No image rebuild is needed.
 
 `FRESH=app bin/run` (or `FRESH=app bin/run-fresh`) also mounts the current
 folder. This keeps the ordinary home-directory and ssh-agent checks, read-only
@@ -123,11 +126,12 @@ the ordinary temporary overlay: the agents and browsers live there, and the
 box cannot change the host copy. This is not a zero-mount image. The launcher
 still writes its command to `data/logs/run.log`, outside the box.
 
-Fresh mode refuses nonempty `GIT`, `REPOS`, `REPOS_PICK`, `SOCKETS` or `AGENTDIR`
-rather than silently dropping a request to mount something. `MASK` is allowed
-only with `FRESH=app`. Unset or empty `FRESH` keeps `bin/run`'s ordinary behavior;
-other values are errors. `bin/run-fresh` defaults an unset or empty `FRESH` to
-`1` and passes commands and their arguments to `bin/run` unchanged.
+Fresh mode refuses nonempty `GIT`, `REPOS`, `REPOS_PICK`, `SOCKETS`, `AGENTDIR`
+or `AGENTS` rather than silently dropping a request to mount something.
+`MASK` is allowed only with `FRESH=app`. Unset or empty `FRESH` keeps
+`bin/run`'s ordinary behavior; other values are errors. `bin/run-fresh`
+defaults an unset or empty `FRESH` to `1` and passes commands and their
+arguments to `bin/run` unchanged.
 
 Fresh mode forwards nonempty `CLAUDE_CODE_OAUTH_TOKEN`, `CODEX_API_KEY` and
 `OPENAI_API_KEY`, just like ordinary mode. They are passed by name, so their
@@ -172,6 +176,7 @@ See [the official Codex login reference](https://learn.chatgpt.com/docs/develope
 | `~/repos` → `/repos` | ro | or `$REPOS` when set; set but empty, no `/repos`. `REPOS_PICK="a b"` mounts only those repositories of it, each at `/repos/<name>`, a missing or symlinked one skipped with a line on stderr; set but empty, no `/repos`. The `.env` and `.env.*` at the top of each repository in it are hidden as the workspace's are; a workspace inside it is hidden there as at `/app`, `MASK` included |
 | `~/sockets` → `/sockets` | ro | or `$SOCKETS` when set; set but empty, no `/sockets`. The host's sockets for the box to talk to: read-only still connects, and the folder is mounted rather than each socket, so a service that starts again with a new socket is still reached |
 | `$AGENTDIR` → `/agentdir` | rw | a Visual Notes note, when `AGENTDIR` is set |
+| `$AGENTS` → `/agents` | ro | the app's notes folder, every agent's note by its id, when `AGENTS` is set: one agent reads the others' conversations, plans and documents and changes none. Its own note in it stays read-write at `/agentdir` and is read-only at `/agents/<id>` |
 | `$READONLY` | ro | space-separated paths in the box, each a folder under `/agentdir` or `/app`, mounted again read-only after the other bind mounts |
 | `data/claude{,.json}` → `~/.claude{,.json}` | rw | so the agent keeps its login and history |
 | `data/codex{,.json}` → `~/.codex{,.json}` | rw | same |
