@@ -120,7 +120,10 @@ format_duration () {
     fi
 }
 
+# Neither run of the image here keeps a log on the host, for the reason in
+# bin/run's --log-driver=none: what a box prints is for the terminal alone.
 podman run --rm \
+    --log-driver=none \
     --userns=keep-id:uid=1000,gid=1000 \
     --user 0 \
     --entrypoint true \
@@ -257,6 +260,7 @@ restore_old_image () {
 fill_status=0
 podman run --rm \
     --pull=never \
+    --log-driver=none \
     --shm-size=2g \
     --userns=keep-id:uid=1000,gid=1000 \
     --user 1000:1000 \

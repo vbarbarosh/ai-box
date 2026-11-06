@@ -221,8 +221,9 @@ if podman image exists ai-box 2>/dev/null; then
     report_ok "ai-box" "$(format_bytes "$(podman image inspect ai-box --format '{{.Size}}' 2>/dev/null || echo 0)")"
     # What the build resolved: every component the Dockerfile fetches at its
     # current version is recorded there, one name=version per line. No
-    # --userns here, so this never triggers the id-mapped layer copy.
-    manifest=$(podman run --rm --pull=never --entrypoint cat ai-box /etc/ai-box/versions 2>/dev/null || true)
+    # --userns here, so this never triggers the id-mapped layer copy; and no
+    # log on the host, as in bin/run.
+    manifest=$(podman run --rm --pull=never --log-driver=none --entrypoint cat ai-box /etc/ai-box/versions 2>/dev/null || true)
     if test -n "$manifest"; then
         if test -n "$versions"; then
             echo "$manifest" | sed "s/^/  ${dim}          /; s/\$/${reset}/"

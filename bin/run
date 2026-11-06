@@ -721,6 +721,13 @@ fi
 #       ubuntu inside is you outside, so /app and the agent state mounts are
 #       writable and anything written lands owned by you, not by root. The
 #       entrypoint still starts as root and setpriv's down.
+#   --log-driver=none
+#       The terminal reaches you through the tty, never through podman logs,
+#       and a log driver would keep a copy of every frame of it on the host:
+#       journald passes it to the host's syslog, and on to wherever the
+#       host ships its logs, every secret the agent prints included. So
+#       nothing of the box is logged outside it, and `podman logs` on a box
+#       has nothing to show.
 #   --shm-size=2g
 #       Chrome and Playwright need more than the default 64m.
 #   --device /dev/fuse
@@ -753,6 +760,7 @@ fi
 box=(podman run --rm -i "${tty[@]}" \
     --cidfile "$rundir/cid" \
     --pull=never \
+    --log-driver=none \
     --shm-size=2g \
     "${opts[@]}" \
     "--userns=keep-id:uid=1000,gid=1000" \
