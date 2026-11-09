@@ -198,19 +198,30 @@ node -e "Promise.resolve(require('puppeteer').executablePath()).then(function (p
 
 printf '%s\n' "${versions[@]}" > $root/.versions.tmp
 mv $root/.versions.tmp $root/versions
+
+# What the last fill wanted, read before this fill's list takes its place.
+wanted_previous=()
+if test -f $root/.filled; then
+    while read -r path; do
+        wanted_previous+=($path)
+    done < <(tail -n +2 $root/.filled)
+fi
 {
     echo "$stamp"
     printf '%s\n' "${wanted[@]}"
 } > $root/.filled.tmp
 mv $root/.filled.tmp $root/.filled
 
-# When each entry was last wanted, in seconds: "<epoch> <path>" a line. An
-# entry found on disk and not listed yet is listed as of now, so it is
-# removed only after KEEP_DAYS like any other.
+# When each entry was last wanted, in seconds: "<epoch> <path>" a line. What
+# the last fill wanted counts as wanted until now: nothing changes between two
+# fills, however far apart, so an entry this fill replaces stopped being
+# current only now, and its KEEP_DAYS start here. An entry found on disk and
+# not listed yet is listed as of now, so it is removed only after KEEP_DAYS
+# like any other.
 now=`date +%s`
 touch $root/.wanted
 {
-    printf "$now %s\n" "${wanted[@]}"
+    printf "$now %s\n" "${wanted[@]}" "${wanted_previous[@]}"
     cat $root/.wanted
 } | sort -k2,2 -k1,1nr | awk '!seen[$2]++' > $root/.wanted.tmp
 for path in $root/ms-playwright/* $root/cypress/[0-9]* $root/chrome/[0-9]* $root/npm/[0-9]*; do
