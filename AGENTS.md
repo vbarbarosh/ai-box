@@ -15,8 +15,11 @@ way beside it.
 ## Checks
 
 - `.github/workflows/lint.yml` runs on every push: `bash -n` and shellcheck
-  over the bash scripts, hadolint, `node --check` and the python compile, the
-  executable bits, and the rules linter over the node scripts.
+  over the bash scripts, the same over the scripts `bin/run` and
+  `bin/self-check` write at run time (each quoted heredoc, read on its own),
+  hadolint, `node --check` and the python compile, the executable bits, and
+  the rules linter over the node scripts. A script whose first line none of
+  these steps reads fails the run.
 - The acceptance test is `bin/build` on a real host, whose last step is
   `bin/self-check --deep`; the image is too big for CI.
 

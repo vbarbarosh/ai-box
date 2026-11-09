@@ -9,11 +9,28 @@ on:
   push:
   pull_request:
 
+# The checks read the tree and write nothing back.
+permissions:
+  contents: read
+
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+
+      # The steps below find a bash script by its first line and name the node
+      # and python ones: a script that starts any other way would be checked by
+      # none of them, without a word.
+      - name: every script starts in a way a step below reads
+        run: |
+          unread=$(for f in $(git ls-files bin files/bin files/bin.host files/bin.ai files/docker-entrypoint); do
+            case "$(head -n 1 "$f")" in
+              '#!/bin/bash'|'#!/usr/bin/env node'|'#!/usr/bin/env python3') ;;
+              *) echo "$f" ;;
+            esac
+          done)
+          test -z "$unread" || { echo "no step reads: $unread"; exit 1; }
 
       # bin/usage is node, not bash: it is checked with the other node script
       # below, and handed to neither bash -n nor shellcheck, which rejects an
@@ -28,6 +45,27 @@ jobs:
         run: |
           sudo apt-get install -y --no-install-recommends shellcheck
           shellcheck -S warning $(grep -l '^#!/bin/bash' bin/* files/docker-entrypoint files/bin/* files/bin.host/* files/bin.ai/*)
+
+      # bin/run writes the relay scripts that run on the host, and
+      # bin/self-check the ones it feeds to a box: text inside a heredoc,
+      # which the two steps above never see. Each quoted heredoc is taken out
+      # as a file and read on its own: its syntax, and shellcheck's errors.
+      - name: the scripts written at run time
+        run: |
+          mkdir -p /tmp/written
+          for f in bin/run bin/self-check; do
+            awk -v out="/tmp/written/$(basename "$f")" '
+              /<<.EOF.$/ { n++; file = sprintf("%s-%d.sh", out, n); printf "" > file; inside = 1; next }
+              inside && /^EOF$/ { inside = 0; close(file); next }
+              inside { print > file }
+            ' "$f"
+          done
+          ls /tmp/written
+          test "$(ls /tmp/written | wc -l)" -ge 10
+          for f in /tmp/written/*.sh; do
+            bash -n "$f"
+          done
+          shellcheck -s bash -S error /tmp/written/*.sh
 
       - name: hadolint
         uses: hadolint/hadolint-action@v3.1.0
@@ -45,7 +83,7 @@ jobs:
           not_executable=$(git ls-files -s bin files/bin files/bin.host files/bin.ai files/docker-entrypoint | awk '$1 != "100755" { print $4 }')
           test -z "$not_executable" || { echo "not executable in git: $not_executable"; exit 1; }
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
 
