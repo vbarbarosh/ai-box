@@ -218,19 +218,43 @@ if test -n "$workspace" && test -e "$workspace/.git"; then
     opts+=(-v "$workspace/.git:/app/.git:ro")
 fi
 
-# Secrets never enter the box: every .env and .env.* in the workspace is
-# replaced with /dev/null -- the same set .gitignore keeps out of git. The
-# committed templates (.env.example and friends) hold no secrets and stay
-# visible, or git inside the box would report them as emptied.
+# Secrets never enter the box: every .env and .env.* in the workspace, at any
+# depth, is replaced with /dev/null -- the same set .gitignore keeps out of
+# git. The committed templates (.env.example and friends) hold no secrets and
+# stay visible, or git inside the box would report them as emptied. The search
+# does not enter node_modules, vendor or .git: other people's code and git's
+# own files, and the bulk of a tree; it costs a few hundredths of a second on
+# 25,000 files. The list is taken at the start: a .env made later is in sight.
 # MASK adds more names, space-separated, relative to the workspace, files and
 # folders, patterns too:
 #   MASK="credentials.json service-account.pem keys" bin/run
 # A name it cannot hide is said, never skipped in silence: the box would start
 # with the file in plain sight. Not an error: one MASK may serve many projects.
 
+# env_files_print <folder>...: the .env and .env.* files under them, each
+# ended by a NUL, the templates left out.
+env_files_print () {
+    find "$@" -xdev \( -name node_modules -o -name vendor -o -name .git \) -prune \
+        -o \( -name .env -o -name '.env.*' \) \
+        ! -name '*.example' ! -name '*.sample' ! -name '*.template' ! -name '*.dist' \
+        \( -type f -o -type l \) -print0 2>/dev/null || true
+}
+
 # mask_mount <path in the box> <path on the host>: a file reads as /dev/null,
-# a folder as an empty read-only one.
+# a folder as an empty read-only one. A path is mounted once, however many
+# times it is named; one with a colon cannot be written as a mount, and is
+# said.
+declare -A mask_seen=()
 mask_mount () {
+    if test -n "${mask_seen[$1]+set}"; then
+        return
+    fi
+    mask_seen[$1]=1
+    case "$1" in
+        *:*)
+            echo "ai-box: cannot hide $1: a colon in its path" >&2
+            return ;;
+    esac
     if test -d "$2"; then
         opts+=(--tmpfs "$1:ro,nosuid,nodev,noexec,mode=0555,notmpcopyup")
     else
@@ -240,14 +264,13 @@ mask_mount () {
 
 masked_paths=()
 if test -n "$workspace"; then
-    shopt -s nullglob dotglob
-    for f in "$workspace"/.env "$workspace"/.env.*; do
+    while IFS= read -r -d '' f; do
         f="${f#"$workspace"/}"
-        case "$f" in *.example|*.sample|*.template|*.dist) continue ;; esac
         test -f "$workspace/$f" || continue
         mask_mount "/app/$f" "$workspace/$f"
         masked_paths+=("$f")
-    done
+    done < <(env_files_print "$workspace")
+    shopt -s nullglob dotglob
     mask_words=()
     read -r -d '' -a mask_words <<<"${MASK:-}" || true
     for mask_word in "${mask_words[@]}"; do
@@ -600,25 +623,21 @@ else
 fi
 
 # Read-only is not hidden: every repository in /repos keeps its .env and
-# .env.* out as the workspace does, and a workspace inside /repos (a machine
-# that starts the box in a folder of REPOS) is masked there as at /app, MASK
-# included.
+# .env.* out as the workspace does, at any depth, and a workspace inside
+# /repos (a machine that starts the box in a folder of REPOS) is masked there
+# as at /app, MASK included.
 workspace_in_repos=
 if test -n "$repos"; then
     case "$workspace/" in
         "$repos"/*) workspace_in_repos=${workspace#"$repos"/} ;;
     esac
 fi
-shopt -s nullglob dotglob
-for dir in "${repo_dirs[@]}"; do
-    test "${dir#"$repos"/}" = "$workspace_in_repos" && continue
-    for f in "$dir"/.env "$dir"/.env.*; do
-        case "$f" in *.example|*.sample|*.template|*.dist) continue ;; esac
+if test "${#repo_dirs[@]}" -gt 0; then
+    while IFS= read -r -d '' f; do
         test -f "$f" || continue
-        opts+=(-v "/dev/null:/repos/${f#"$repos"/}:ro")
-    done
-done
-shopt -u nullglob dotglob
+        mask_mount "/repos/${f#"$repos"/}" "$f"
+    done < <(env_files_print "${repo_dirs[@]}")
+fi
 if test -n "$workspace_in_repos"; then
     for dir in "${repo_dirs[@]}"; do
         if test "$dir" = "$repos/${workspace_in_repos%%/*}"; then
