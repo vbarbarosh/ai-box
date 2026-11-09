@@ -345,6 +345,12 @@ one directory holds all of it, `rm -rf data` is the whole reset, and it leaves
 nothing anywhere else on the host. `data/` is gitignored, and `.dockerignore`
 keeps it out of the build context.
 
+One box sees all of it: a box started on the ai-box checkout itself has
+`data/` at `/app/data`, read-write, as part of its workspace: the logins,
+the host's copy of `data/extras` (not the overlay), the image store, the
+logs. An agent at work there edits the launcher too, so it is trusted with
+the host either way. `FRESH=app` hides `data/` from such a box.
+
 The path is anchored to the scripts, not to `$PWD`, so `bin/run` from any
 workspace finds the same state. Two clones are two boxes: separate logins,
 separate image stores. The image is one for both: each builds and starts
@@ -578,13 +584,16 @@ of them is in the copy `bin/build` makes of the image.
 calls `sethostname(2)`, which the default profile blocks. It widens the syscall
 surface, but the sandbox is still rootless and user-namespaced — this is not
 host root. A narrow custom profile adding just `sethostname` would recover most
-of it. `unmask=ALL` is in the same category: the inner runtime mounts a fresh
+of it; ai-box ships none, and the box runs with no seccomp filter at all.
+`unmask=ALL` is in the same category: the inner runtime mounts a fresh
 `/proc` for every container it starts, and the kernel refuses that while any
 part of the box's own `/proc` is masked, so a narrower unmask is not enough.
 The box also has full outbound network; the agent needs registries and APIs.
 That reaches the host's own services too, those that listen beyond
 127.0.0.1 (`host.containers.internal`), your LAN, and on a cloud machine its
-metadata address.
+metadata address. Podman also copies the host's `/etc/hosts` into the box:
+the names you gave the machines of your network are readable there, and
+resolve.
 
 ### What the image was built with
 
@@ -620,5 +629,8 @@ Inner containers then start with no pull and no network.
 The store is mounted read-write, not read-only. Building FROM an image that
 lives only in it makes the inner engine create and remove a transient
 mountpoint inside the store, and read-only turns every such `docker build` into
-`removing mount point ...: read-only file system`. Only those transient
-mountpoints are written -- the images themselves are untouched.
+`removing mount point ...: read-only file system`. The inner engine writes
+only those transient mountpoints and leaves the images untouched; the mount
+itself does not hold a box to that. A process in one box can change the
+layers another box runs, so the store is as trusted as the least trusted
+agent you start.
