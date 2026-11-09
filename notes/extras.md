@@ -1,7 +1,7 @@
 # Extras: big tools in a folder beside the image
 
-Built 2026-10-07 (`files/bin/extras-fill`, `bin/build`, `bin/run`); not yet
-run on the host. It serves [build-and-run](build-and-run.md): the image
+Built 2026-10-07 (`files/bin/extras-fill`, `bin/build`, `bin/run`); on the
+host since 2026-10-11. It serves [build-and-run](build-and-run.md): the image
 keeps what changes weekly, a host folder keeps the browsers, the speech model
 and the two CLIs. Sizes are from [audit-2026-10-07](audit-2026-10-07.md).
 
@@ -69,7 +69,7 @@ version it started with.
 - the host folder is the lower layer and is never written by a box;
 - a box may write there (a project's own `npx playwright install`); the
   writes go to a throwaway layer that ends with the box, as writes into the
-  image do today. Tested with the nested podman; not yet on the host.
+  image do today. Tested with the nested podman, then on the host.
 
 No agent CLIs in it: `bin/run` stops with "run bin/build". No `versions`
 file (the last fill failed after the CLIs): it starts with a warning.
@@ -92,7 +92,7 @@ nothing to tell it.
 Three places cover the rest:
 
 1. **What is installed: `/etc/ai-box/versions`.** It is the file an agent
-   (or `bin/missings --versions`) already reads for the image's versions.
+   (or `bin/self-check --versions`) already reads for the image's versions.
    Its last line becomes `# browsers, speech model, claude, codex:
    /opt/extras/versions`, and that file has the same format, written by the
    fill. One `cat` and the agent sees both halves.

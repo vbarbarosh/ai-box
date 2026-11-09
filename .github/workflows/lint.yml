@@ -2,7 +2,8 @@ name: lint
 
 # Static checks only. The image is multi-gigabyte and the nested-Podman test
 # needs a host with delegated cgroups and /dev/fuse, so neither runs here;
-# `bin/build && bin/self-check --deep` on a real host is still the acceptance test.
+# `bin/build` on a real host is still the acceptance test: its last step is
+# `bin/self-check --deep`.
 
 on:
   push:

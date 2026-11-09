@@ -17,8 +17,8 @@ way beside it.
 - `.github/workflows/lint.yml` runs on every push: `bash -n` and shellcheck
   over the bash scripts, hadolint, `node --check` and the python compile, the
   executable bits, and the rules linter over the node scripts.
-- The acceptance test is `bin/build && bin/self-check --deep` on a real host;
-  the image is too big for CI.
+- The acceptance test is `bin/build` on a real host, whose last step is
+  `bin/self-check --deep`; the image is too big for CI.
 
 ## The Dockerfile
 

@@ -1,6 +1,6 @@
 # ai-box
 
-It carries the toolchain the agents
+An ephemeral environment for coding agents. It carries the toolchain they
 reach for -- Node, Python, Chrome, Playwright, ImageMagick, whisper -- and it
 can run containers inside itself, so an agent can `docker build` and
 `docker compose up` the project it is working on without any of it touching the
@@ -18,7 +18,7 @@ No Docker, no root daemon, no `/dev/kvm`. The environment runs under **rootless
 Podman**, so the host needs Podman and the pieces rootless mode depends on:
 
 ```bash
-sudo apt install -y podman uidmap passt slirp4netns crun catatonit
+sudo apt install -y podman uidmap passt slirp4netns crun catatonit socat
 ```
 
 Podman has to be **4.3 or newer**: `bin/run` starts the box with
@@ -40,6 +40,7 @@ Rather than checking by hand:
 
 ```bash
 bin/configure      # installs the packages, loads fuse/tun, grants the subuids
+                   # you lack (a range that is too short it names, for you)
 bin/self-check     # or just tell me what is missing, change nothing
 ```
 
@@ -48,7 +49,10 @@ no-op that reports what is already in place. `bin/configure --dry-run` prints
 what it would do. Both are safe under `sudo`: the subordinate range is granted
 to `$SUDO_USER`, not to root.
 
-Verified on Ubuntu 26.04, kernel 7.0, Podman 5.7 on the host.
+Verified on Ubuntu 26.04, kernel 7.0, Podman 5.7 on the host. The image is
+x86_64 only; `bin/build` says so on another machine. And ai-box itself must
+lie in a path with no space in it: its scripts start from the rulebook's
+header, which does not quote its own path. A workspace may have spaces.
 
 If Podman prints `OCI Runtime crun is in use by a container, but is not
 available` on every command, `crun` is missing while existing containers still
@@ -66,7 +70,9 @@ bin/configure      # install what the host is missing (idempotent)
 bin/self-check     # report what is here and what is not; --deep also starts
                    # boxes: a container inside one, and the boundary tried
                    # from inside (.git, the masks, the relay, the end)
-bin/build          # build the image (tag: ai-box) and fill data/extras
+bin/build          # build the image (tag: ai-box), fill data/extras, check it
+                   # with self-check --deep; a build that does not finish
+                   # leaves the previous image as it was
 bin/images         # list the shared image store; add: bin/images mysql:8.0
 
 bin/run            # open the box on the current directory
@@ -77,10 +83,10 @@ bin/run-fresh codex
 FRESH=1 bin/run    # the same fresh mode through the ordinary launcher
 FRESH=app bin/run-fresh
                    # fresh settings, with the current folder at /app
-AGENTDIR=~/w/kb/app-visual-notes/data/notes/<id> bin/run claude
-                   # ...with a Visual Notes note at /agentdir
-AGENTS=~/w/kb/app-visual-notes/data/notes bin/run claude
-                   # ...with every agent's note at /agents, read only
+AGENTDIR=~/agents/<id> bin/run claude
+                   # ...with an agent's folder of Visual Agency at /agentdir
+AGENTS=~/agents bin/run claude
+                   # ...with every agent's folder at /agents, read only
 REPOS=~/w bin/run claude
                    # ...with ~/w at /repos instead of ~/repos; REPOS= for none
 REPOS_PICK='rules infra' bin/run claude
@@ -178,13 +184,13 @@ See [the official Codex login reference](https://learn.chatgpt.com/docs/develope
 
 | path | mode | |
 |---|---|---|
-| `$PWD` → `/app` | rw | the project; the only writable host path |
+| `$PWD` → `/app` | rw | the project |
 | `$PWD/.git` | **ro** | mounted over the writable workspace, always. Where the workspace has none, an empty read-only folder stands there, so the box cannot make a repository of it: `git init` is yours, on the host. The folder is empty and gone when the box ends |
 | `.env`, `.env.*` in `$PWD`, at any depth | hidden | each replaced with `/dev/null`, so they never enter the box; not searched for under `node_modules`, `vendor` and `.git`, and taken at the start: one made later is in sight. `.env.example`, `.sample`, `.template` and `.dist` stay, as templates. `MASK="a.pem keys"` hides more, files and folders, patterns too: a folder reads as empty. A name it cannot hide (not there, outside the workspace) gets a line on stderr and the box starts without it |
 | `~/repos` → `/repos` | ro | or `$REPOS` when set; set but empty, no `/repos`. `REPOS_PICK="a b"` mounts only those repositories of it, each at `/repos/<name>`, a missing or symlinked one skipped with a line on stderr; set but empty, no `/repos`. The `.env` and `.env.*` of each repository in it are hidden as the workspace's are, at any depth; a workspace inside it is hidden there as at `/app`, `MASK` included |
 | `~/sockets` → `/sockets` | ro | or `$SOCKETS` when set; set but empty, no `/sockets`. The host's sockets for the box to talk to: read-only still connects, and the folder is mounted rather than each socket, so a service that starts again with a new socket is still reached |
-| `$AGENTDIR` → `/agentdir` | rw | a Visual Notes note, when `AGENTDIR` is set |
-| `$AGENTS` → `/agents` | ro | the app's notes folder, every agent's note by its id, when `AGENTS` is set: one agent reads the others' conversations, plans and documents and changes none. Its own note in it stays read-write at `/agentdir` and is read-only at `/agents/<id>` |
+| `$AGENTDIR` → `/agentdir` | rw | an agent's folder of Visual Agency, when `AGENTDIR` is set |
+| `$AGENTS` → `/agents` | ro | the app's folder of agents, each by its id, when `AGENTS` is set: one agent reads the others' conversations, plans and documents and changes none. Its own folder in it stays read-write at `/agentdir` and is read-only at `/agents/<id>` |
 | `$READONLY` | ro | space-separated paths in the box, each a folder under `/agentdir` or `/app`, mounted again read-only after the other bind mounts |
 | `data/claude{,.json}` → `~/.claude{,.json}` | rw | so the agent keeps its login and history |
 | `data/codex{,.json}` → `~/.codex{,.json}` | rw | same |
@@ -194,7 +200,7 @@ See [the official Codex login reference](https://learn.chatgpt.com/docs/develope
 
 Agent state is the box's own, kept out of your home dotfiles: the box logs in,
 keeps its history and rewrites its config without touching the `~/.claude` or
-`~/.codex` you use outside it. `bin/run` creates the directory and the two JSON
+`~/.codex` you use outside it. `bin/run` creates the two directories and the two JSON
 files on first run, because a bind mount whose source does not exist would
 otherwise be created as a directory and the agents want files there.
 
@@ -265,7 +271,8 @@ workspace, for the branch checked out when the box started:
 | `pull` | `git fetch` of `<branch>` into `origin/<branch>`, then `git merge` |
 
 One patch, one commit. The host applies it to a scratch index on `HEAD`, so
-neither your staging nor the working tree is read or changed: the files
+your working tree is not changed, and of your staging only the paths of the
+commit, which are set to it: the files
 already hold the change, and the patch is what gets recorded. Commits are
 yours: your `user.name`. Your hooks do not run, for `commit`, `push` or
 `pull`: a hook is a file of the work tree (husky's `.husky/`) or runs one
@@ -295,12 +302,15 @@ back to the agent as git printed it; `pull` and a second `push` follow.
 
 `git commit`, `git push` and `git pull` in the box say which command to run
 instead, and so does `git tag` when it would make or delete one; listing tags
-is plain git. The relays end with the box.
+is plain git. The relays end with the box; after a bare `kill -9` of
+`bin/run` they stay, as the box does.
 
 What it needs:
 
 - a branch checked out on the host; `bin/run` stops on a detached HEAD;
 - `socat` on the host (`bin/configure` installs it);
+- `.git` as a folder of the workspace, not the file of a linked worktree or
+  a submodule checkout, and a remote named `origin`;
 - a push and a fetch that work from your terminal with no passphrase typed:
   the relays have no terminal to ask on. ssh-agent covers it.
 
@@ -313,7 +323,7 @@ data/claude/  data/claude.json     the agents' state and logins
 data/codex/   data/codex.json
 data/images/                       shared image store, for inner docker run
 data/extras/                       browsers, whisper model, Chrome, agent CLIs
-data/refresh                       the ISO week of the last finished build
+data/refresh                       the ISO week of the last image build
 data/logs/                         each build's output; run.log, every bin/run's podman command
 ```
 
@@ -329,12 +339,13 @@ keeps it out of the build context.
 
 The path is anchored to the scripts, not to `$PWD`, so `bin/run` from any
 workspace finds the same state. Two clones are two boxes: separate logins,
-separate image stores. Deleting a clone deletes its state with it -- and a
+separate image stores. The image is one for both: each builds and starts
+`ai-box`. Deleting a clone deletes its state with it -- and a
 fresh clone starts logged out, so keep the clone you use.
 
 The other side of state living in an ignored directory: `git clean -xdf` in
 this repo takes the logins and the image store with it, and `data/extras`,
-which the next `bin/build` downloads again (3.5 GB). `git pull` and a
+which the next `bin/build` downloads again (about 4 GB). `git pull` and a
 rebuild, the daily path, leave `data/` alone.
 
 ### Browsers, model and agent CLIs
@@ -361,9 +372,11 @@ data/extras/
   Claude or Codex beside the old ones and moves `npm/current`, and the image
   itself, unchanged, is not copied again. The first build of a week also
   takes a new Chrome. Each entry is checked (a real launch, a real
-  transcription, `--version`) before it is renamed into place.
+  transcription, `--version`): the agent CLIs and Chrome before they are
+  renamed into place, the browsers and the model right after their own
+  tools have put them there.
 - **`bin/run` mounts it** at `/opt/extras` as an overlay (`:O`): the host's
-  folder is never written by a box, and what a box writes there -- a
+  folder is not written through it, and what a box writes there -- a
   project's own `npx playwright install` -- ends with it. Without the agent
   CLIs `bin/run` stops and says to run `bin/build`; without the rest it starts
   with a warning, since the fill installs the agents first. A box sees the
@@ -401,11 +414,11 @@ processes are reaped and `podman stop` ends the box at once.
 `podman run` is only a client: the container runs under `conmon`, and a
 `podman run` that is killed leaves it running. So `bin/run` keeps podman in
 the background and, on SIGHUP, SIGTERM or SIGINT (the terminal closed, a
-`kill`, Visual Notes ending an agent), stops the container: SIGTERM to its
+`kill`, Visual Agency ending an agent), stops the container: SIGTERM to its
 init, SIGKILL 3 s later. The stop is detached from `bin/run`, so it finishes
-even when `bin/run` is killed meanwhile, as Visual Notes does 3 s after its
-SIGTERM. The box's exit status is `bin/run`'s. Only a bare SIGKILL to
-`bin/run`, with no signal before it, leaves the box running; `podman ps` and
+even when `bin/run` is killed meanwhile, as Visual Agency does 3 s after its
+SIGTERM. The box's exit status is `bin/run`'s. Only a signal `bin/run` cannot
+catch, a bare SIGKILL above all, leaves the box running; `podman ps` and
 `podman stop` then.
 
 ### Helpers on the `PATH`
@@ -418,6 +431,8 @@ SIGTERM. The box's exit status is `bin/run`'s. Only a bare SIGKILL to
 | `diskusage` | one CSV row per real filesystem: inodes, bytes, percentages |
 | `diskusage-warn` | the same, filtered to whatever is over 85% |
 | `now` | timestamp, for pasting into notes |
+| `diskperf` | how fast the disk under `$PWD` writes: two 400 MB files, removed after |
+| `showhomedir` | what the box's home holds |
 | `g` | recursive `ag` search: `g pattern` |
 | `templ` | the skeleton these scripts start from: `templ > new && vi new` |
 | `extras-fill` | fills `/opt/extras`; `bin/build` runs it with `data/extras` mounted writable |
@@ -432,6 +447,11 @@ table check is skipped. `g` with no argument wants an X clipboard the image does
 not have and says so. Scripts that only make sense on a real host -- `netdata`,
 `osdata`, `showmyip`, `showufw` -- live in `files/bin.host/` and are not copied
 into the image.
+
+Two more, from `files/bin.ai/`, are in `/usr/local/bin`: `tts [--voice NAME]
+<out.mp3> <text|->` speaks a text into a file through the Edge voices (it
+needs the network), and `transcribe <file>...` turns the speech of an audio or
+video file into text, with `--plain`, `--lang` and `--model`.
 
 There is no database server in the image. MySQL, Redis and MinIO run as
 containers, and `bin/images mysql:8.0 redis:7 minio/minio` on the host puts
@@ -481,7 +501,7 @@ Bonus: files you create in `/app` come back owned by **you**, not by `root`.
   mode is not obvious: compose comes up and published ports work, but services
   cannot resolve each other by name. `aardvark-dns` is that resolver; netavark
   shells out to `nft`.
-- `setcap cap_setuid+ep` on `newuidmap`/`newgidmap`. Ubuntu ships them
+- `setcap cap_setuid+ep` on `newuidmap` and `cap_setgid+ep` on `newgidmap`. Ubuntu ships them
   setuid-root, Fedora ships them with file capabilities, and **only the
   capability form can write a nested `uid_map`**. Without it the inner `docker`
   dies with `newuidmap: ... Operation not permitted`.
@@ -502,7 +522,7 @@ a pause-process file into `$PWD` — straight into your mounted workspace.
 **`bin/run`** — `podman run` with the flags that make nesting work. Each is
 there for one specific reason; see the comments in the script.
 
-**`bin/build`** — `docker build` → `podman build`. All 14 `--mount=type=cache`
+**`bin/build`** — `docker build` → `podman build`. All 12 `--mount=type=cache`
 BuildKit cache mounts work unchanged.
 
 ## Two things that behave differently
@@ -537,11 +557,11 @@ There used to be four Chromiums in the image and two ImageMagicks. Now:
   upstream's one-line deprecation warning on stderr. (The AppImage's own
   launcher only tells the names apart under FUSE, which the box does not have.)
 
-That is 925 MB measured — 652 + 262 + 11 — and `bin/build`'s id-mapped copy is
-proportional to the image, so it comes off every build as well as off the disk.
-Cypress still carries its own Electron (679 MB) and Playwright still installs
-Firefox and WebKit (595 MB); those are tools you either use or do not, rather
-than duplicates.
+That was 925 MB measured — 652 + 262 + 11 — off the image as it then was.
+Since then all the browsers have left it: with Cypress's Electron (679 MB),
+Firefox and WebKit (595 MB) and the whisper model they live in `data/extras`
+([Browsers, model and agent CLIs](#browsers-model-and-agent-clis)), so none
+of them is in the copy `bin/build` makes of the image.
 
 `seccomp=unconfined` on the sandbox is worth knowing about: the inner runtime
 calls `sethostname(2)`, which the default profile blocks. It widens the syscall
@@ -551,19 +571,25 @@ of it. `unmask=ALL` is in the same category: the inner runtime mounts a fresh
 `/proc` for every container it starts, and the kernel refuses that while any
 part of the box's own `/proc` is masked, so a narrower unmask is not enough.
 The box also has full outbound network; the agent needs registries and APIs.
+That reaches the host's own services too, those that listen beyond
+127.0.0.1 (`host.containers.internal`), your LAN, and on a cloud machine its
+metadata address.
 
 ### What the image was built with
 
-Only seven versions are pinned as build arguments (Node, Playwright, the
-Playwright headless shell, Puppeteer, Cypress, ImageMagick, oxipng). Everything else -- the Python and npm libraries,
+Six versions are pinned as build arguments (Node, Playwright, Puppeteer,
+Cypress, ImageMagick, oxipng), and a seventh in the Dockerfile itself: the
+older Playwright whose Chromium is kept for projects that pin it
+(`PLAYWRIGHT_PINNED_VERSION`). Everything else -- the Python and npm libraries,
 phpredis, Composer, yt-dlp, Chrome, and the two agent CLIs -- asks its
 upstream for the current release at build time, so two builds a week apart
 differ. Each layer records what it resolved in `/etc/ai-box/versions`;
 `extras-fill` records Chrome, the browsers, the model and the CLIs in
 `/opt/extras/versions`, in the same format. `bin/self-check --versions` prints
-both. Every download is
-checksum-verified, but the checksum comes from the same publisher as the
-artifact: that guards against corruption and torn releases, not against a
+both. Every download the Dockerfile and the fill make themselves is
+checksum-verified (Node, Composer, yt-dlp, oxipng, ImageMagick, Chrome);
+phpredis, Playwright's browsers, Cypress and the model come by their own
+tools. The checksum comes from the same publisher as the artifact: that guards against corruption and torn releases, not against a
 compromised upstream. npm, pip and apt add their own registry-side integrity
 checks on top.
 

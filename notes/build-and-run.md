@@ -40,7 +40,7 @@ after the SIGKILL (docs/README.md, "The box ends with `bin/run`").
 
 ## Where it stands today
 
-Built 2026-10-07, not yet run on the host: the CLIs, browsers, model and
+Built 2026-10-07, on the host since 2026-10-11: the CLIs, browsers, model and
 Chrome live in `data/extras` ([extras](extras.md)). A daily `bin/build`
 should find every image layer cached, so the image id stays and nothing is
 copied (to confirm on the first weekday build); the fill installs the new
