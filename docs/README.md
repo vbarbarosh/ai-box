@@ -348,8 +348,11 @@ keeps it out of the build context.
 The path is anchored to the scripts, not to `$PWD`, so `bin/run` from any
 workspace finds the same state. Two clones are two boxes: separate logins,
 separate image stores. The image is one for both: each builds and starts
-`ai-box`. Deleting a clone deletes its state with it -- and a
-fresh clone starts logged out, so keep the clone you use.
+`ai-box`, so a build in one clone is the image the other starts next,
+beside the `data/extras` its own last build filled, and it clears away the
+other's previous image. Build in the clone you start boxes from. Deleting a
+clone deletes its state with it -- and a fresh clone starts logged out, so
+keep the clone you use.
 
 The other side of state living in an ignored directory: `git clean -xdf` in
 this repo takes the logins and the image store with it, and `data/extras`,
