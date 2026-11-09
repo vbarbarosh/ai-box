@@ -322,7 +322,10 @@ EOF
 # A message ended by a NUL, then the patch. The patch goes on HEAD in a scratch
 # index, so neither your staging nor the working tree is read or changed; then
 # git commit, with no hook run, and your index follows for the paths it touched.
-# A masked file is refused: the box sees it emptied.
+# A masked file is refused: the box sees it emptied. So is a submodule entry,
+# and .gitmodules: the folder of a submodule is a repository the box writes,
+# config included, and once your index names it, your next git status reads
+# that config and runs what it says.
 commit () {
     local message= tempdir path masked_path status paths=()
     IFS= read -r -d '' message || true
@@ -349,6 +352,15 @@ commit () {
                 return 1
             fi
         done
+        if test "$path" = .gitmodules; then
+            echo "commit: .gitmodules is the list of submodules; commit it yourself"
+            rm -rf "$tempdir"
+            return 1
+        elif git ls-files -s -- "$path" | grep -q '^160000 '; then
+            echo "commit: $path is a submodule entry; commit it yourself"
+            rm -rf "$tempdir"
+            return 1
+        fi
         paths+=("$path")
     done < <(git diff --cached --name-only --no-renames -z HEAD)
     if test "${#paths[@]}" -eq 0; then
@@ -440,7 +452,8 @@ pull () {
     # halfway with conflicts; only the second leaves MERGE_HEAD.
     git rev-parse --quiet --verify MERGE_HEAD >/dev/null || return 1
     local conflicts
-    conflicts=$(git diff --name-only --diff-filter=U)
+    # Not into submodules: their folders are the box's to write, config and all.
+    conflicts=$(git diff --ignore-submodules=all --name-only --diff-filter=U)
     git merge --abort
     echo
     echo "pull: origin/$branch conflicts with $branch in:"

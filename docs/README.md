@@ -260,7 +260,10 @@ yours: your `user.name`. Your hooks do not run, for `commit`, `push` or
 (`npm test`), the box writes the work tree, and the host would run the box's
 code as you. What a hook checks, the agent runs in the box, or you run before
 you take its work. A patch that does not apply to `HEAD` as it is now is
-refused, and so is one touching a file the box sees masked (`.env`, `MASK`).
+refused, and so is one touching a file the box sees masked (`.env`, `MASK`),
+or one that adds or changes a submodule entry or `.gitmodules`: the folder of
+a submodule is a repository the box writes, and your git would read its
+config. Submodules are yours to commit.
 From paths, the agent names every file, new, changed or deleted; no globs, no
 `-a`. No force, no other branch, no amend, rebase or reset: there is no
 command for them. If you switch the branch on the host, `commit`, `tag` and
