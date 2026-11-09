@@ -21,7 +21,7 @@ usage_print () {
     echo "  SOCKETS=<dir>          that folder at /sockets, not ~/sockets; empty for none"
     echo "  READONLY='/app/x ...'  those folders under /app or /agentdir read only"
     echo "  MASK='a.pem b.json'    more files of the workspace hidden, as .env is"
-    echo "  GIT=commit             commit, push and pull your branch through the host"
+    echo "  GIT=commit             commit, tag, push and pull your branch through the host"
     echo "  PIDS, MEMORY, CPUS     the box's limits"
     echo "  CLAUDE_CODE_OAUTH_TOKEN, CODEX_API_KEY   the agent's own sign-in"
     echo "More in $(dirname "$scriptdir")/docs/README.md."
@@ -195,7 +195,7 @@ trap cleanup EXIT
 
 # Read-only, mounted over the read-write workspace, always: a box with write
 # access to .git can rewrite history, move or delete any branch, drop stashes.
-# GIT=commit gives the agent commit, push and pull through the host instead;
+# GIT=commit gives the agent commit, tag, push and pull through the host instead;
 # see the relays below.
 case "${GIT:-}" in
     "") git_relays= ;;
@@ -238,17 +238,20 @@ if test -n "$workspace"; then
 fi
 
 # GIT=commit: the box holds no key and cannot write .git, so the host does the
-# git work. `commit`, `push` and `pull` inside the box each connect to a socket
-# the host listens on, and the host runs a fixed script in the workspace, for
-# the branch checked out when the box started:
+# git work. `commit`, `tag`, `push` and `pull` inside the box each connect to a
+# socket the host listens on, and the host runs a fixed script in the
+# workspace, for the branch checked out when the box started:
 #   commit   a patch and a message from the box, applied on HEAD and
 #            committed: as you; your staging left alone
-#   push     git push --no-follow-tags origin <branch>:<branch>
+#   tag      a name from the box, and a message for an annotated one: a new
+#            tag on HEAD
+#   push     git push --no-follow-tags origin <branch>:<branch>, and the tags
+#            made by `tag` for this box
 #   pull     git fetch of <branch>, then git merge; a conflict is undone
-# No force, no other branch, no tags, no rewriting. No hook either, in any of
-# the three: a hook is a file of the work tree or runs one, the box writes the
-# work tree, and the host would run the box's code as you. The relays end with
-# the box.
+# No force, no other branch, no tag moved or deleted, no rewriting. No hook
+# either, in any of the four: a hook is a file of the work tree or runs one,
+# the box writes the work tree, and the host would run the box's code as you.
+# The relays end with the box.
 if test -n "$git_relays"; then
     branch=$(git -C "$workspace" symbolic-ref --quiet --short HEAD || true)
     if ! test -d "$workspace/.git"; then
@@ -276,6 +279,7 @@ if test -n "$git_relays"; then
             echo '#!/bin/bash'
             printf 'workspace=%q\n' "$workspace"
             printf 'branch=%q\n' "$branch"
+            printf 'tags_file=%q\n' "$relaydir/tags"
             printf 'masked_paths=('
             printf ' %q' "${masked_paths[@]}"
             printf ' )\n'
@@ -364,8 +368,65 @@ commit () {
 commit 2>&1
 echo "commit: exit $?"
 EOF
+    relay tag <<'EOF'
+# A name ended by a NUL, then the message of an annotated tag, or nothing. The
+# tag goes on the commit the branch is at. A name that is there already on
+# that commit counts as made; on another commit it is refused: no tag is
+# moved or deleted. The name is kept for push, which sends these tags only.
+tag () {
+    local name= message head_commit tag_commit
+    IFS= read -r -d '' name || true
+    message=$(cat)
+    case "$name" in
+        ""|-*|HEAD|refs/*)
+            echo "tag: not a tag name: $name"
+            return 1 ;;
+    esac
+    if ! git check-ref-format "refs/tags/$name"; then
+        echo "tag: not a tag name: $name"
+        return 1
+    fi
+    # A tag named as a branch makes that name mean two things to your git.
+    if git show-ref --verify --quiet "refs/heads/$name" || git show-ref --verify --quiet "refs/remotes/$name"; then
+        echo "tag: $name is the name of a branch"
+        return 1
+    fi
+    check_branch || return 1
+    head_commit=$(git rev-parse --verify HEAD) || return 1
+    tag_commit=$(git rev-parse --quiet --verify "refs/tags/$name^{commit}" || true)
+    if test -n "$tag_commit" && test "$tag_commit" != "$head_commit"; then
+        echo "tag: $name is there already, on ${tag_commit:0:7}; a tag is never moved"
+        return 1
+    elif test -n "$tag_commit"; then
+        echo "tag: $name is there already, on this commit; push sends it to origin"
+    else
+        if test -n "$message"; then
+            git tag -a -F - "$name" "$head_commit" <<<"$message" || return
+        else
+            git tag "$name" "$head_commit" || return
+        fi
+        echo "tag: $name is on ${head_commit:0:7}; push sends it to origin"
+    fi
+    echo "$name" >> "$tags_file"
+}
+tag 2>&1
+echo "tag: exit $?"
+EOF
     relay push <<'EOF'
-git push --no-follow-tags origin "refs/heads/$branch:refs/heads/$branch" </dev/null 2>&1
+# The branch, and with it the tags `tag` made for this box, those that are
+# still there. A tag of your own is not sent: it is yours to push.
+push () {
+    local name refs=("refs/heads/$branch:refs/heads/$branch")
+    if test -s "$tags_file"; then
+        while IFS= read -r name; do
+            if git rev-parse --quiet --verify "refs/tags/$name" >/dev/null; then
+                refs+=("refs/tags/$name")
+            fi
+        done < <(sort -u "$tags_file")
+    fi
+    git push --no-follow-tags origin "${refs[@]}"
+}
+push </dev/null 2>&1
 echo "push: exit $?"
 EOF
     relay pull <<'EOF'
@@ -391,7 +452,7 @@ pull </dev/null 2>&1
 echo "pull: exit $?"
 EOF
     opts+=(-v "$relaydir/box:/run/git:ro")
-    echo "ai-box: commit, push and pull work on $branch, through the host; .git is read-only" >&2
+    echo "ai-box: commit, tag, push and pull work on $branch, through the host; .git is read-only" >&2
 fi
 
 # Mounted when present, so this script still runs on a machine that has not

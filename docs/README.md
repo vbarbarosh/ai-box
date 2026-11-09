@@ -82,8 +82,9 @@ SOCKETS=~/w/sockets bin/run claude
                    # ...with ~/w/sockets at /sockets instead of ~/sockets;
                    # SOCKETS= for none
 GIT=commit bin/run claude
-                   # ...letting the agent commit, push and pull the branch
-                   # you are on, through the host; see Commit, push and pull
+                   # ...letting the agent commit, tag, push and pull the
+                   # branch you are on, through the host; see Commit, push
+                   # and pull
 CLAUDE_CODE_OAUTH_TOKEN=... bin/run claude
                    # ...signed in to that account instead of the shared one;
                    # CODEX_API_KEY for codex; see Its own sign-in
@@ -239,15 +240,16 @@ GIT=commit bin/run claude
 `.git` stays read-only. A box that could write it could rewrite history, move
 or delete any branch and drop your stashes, and an agent did: it rewrote
 commits you had already pushed. So the host does the git work, and the box
-asks. `commit`, `push` and `pull` inside the box each connect to a relay
-`bin/run` starts beside it, and the host runs a fixed script in the workspace,
-for the branch checked out when the box started:
+asks. `commit`, `tag`, `push` and `pull` inside the box each connect to a
+relay `bin/run` starts beside it, and the host runs a fixed script in the
+workspace, for the branch checked out when the box started:
 
 | in the box | on the host |
 |---|---|
 | `commit <file.patch>` | the patch applied on `HEAD` and committed; a `git format-patch` email brings its message, a plain diff takes `-m <message>` |
 | `commit -m <message> <path>...` | the same, with the patch made in the box from those files |
-| `push` | `git push --no-follow-tags origin refs/heads/<branch>:refs/heads/<branch>` |
+| `tag <name>` | a new tag on `HEAD`; `tag -m <message> <name>` makes an annotated one |
+| `push` | `git push --no-follow-tags origin refs/heads/<branch>:refs/heads/<branch>`, and with it the tags `tag` made in this box |
 | `pull` | `git fetch` of `<branch>` into `origin/<branch>`, then `git merge` |
 
 One patch, one commit. The host applies it to a scratch index on `HEAD`, so
@@ -260,9 +262,16 @@ code as you. What a hook checks, the agent runs in the box, or you run before
 you take its work. A patch that does not apply to `HEAD` as it is now is
 refused, and so is one touching a file the box sees masked (`.env`, `MASK`).
 From paths, the agent names every file, new, changed or deleted; no globs, no
-`-a`. No force, no other branch, no tags, no amend,
-rebase or reset: there is no command for them. If you switch the branch on the
-host, `commit` and `pull` refuse until you switch back.
+`-a`. No force, no other branch, no amend, rebase or reset: there is no
+command for them. If you switch the branch on the host, `commit`, `tag` and
+`pull` refuse until you switch back.
+
+`tag` puts a new tag on the commit the branch is at, and the next `push` sends
+it to origin with the branch: `commit`, `tag v1.2.3`, `push` is a release from
+the box. A name that is taken on another commit is refused, and there is no
+way to move or delete a tag. `push` sends the tags made by `tag` in this box
+and no others: a tag you made yourself stays yours to push. Where a pushed tag
+starts a release in CI, the agent can start one: that is what `tag` is for.
 
 `pull` merges on the host: a fast-forward or a merge commit goes through. A
 conflict does not. `pull` undoes the merge, lists the files, tells the agent
@@ -270,7 +279,8 @@ to stop and ask you, and exits 2. A rejected push (the remote moved on) comes
 back to the agent as git printed it; `pull` and a second `push` follow.
 
 `git commit`, `git push` and `git pull` in the box say which command to run
-instead. The relays end with the box.
+instead, and so does `git tag` when it would make or delete one; listing tags
+is plain git. The relays end with the box.
 
 What it needs:
 
@@ -397,9 +407,10 @@ SIGTERM. The box's exit status is `bin/run`'s. Only a bare SIGKILL to
 | `templ` | the skeleton these scripts start from: `templ > new && vi new` |
 | `extras-fill` | fills `/opt/extras`; `bin/build` runs it with `data/extras` mounted writable |
 | `commit` | one patch, one commit, through the host: `commit <file.patch>` or `commit -m <message> <path>...`; a `GIT=commit` box only |
-| `push` | push the branch the box was started on, through the host; a `GIT=commit` box only |
+| `tag` | a new tag on the commit the branch is at, through the host: `tag <name>` or `tag -m <message> <name>`; a `GIT=commit` box only |
+| `push` | push the branch the box was started on, and the tags made by `tag`, through the host; a `GIT=commit` box only |
 | `pull` | fetch that branch and merge it, on the host; stops on a conflict; a `GIT=commit` box only |
-| `git` | git itself, except that `git commit`, `push` and `pull` point at the three above in a `GIT=commit` box |
+| `git` | git itself, except that `git commit`, `push`, `pull` and a `git tag` that makes one point at the four above in a `GIT=commit` box |
 
 `hwdata` reports what it can: `parted` is not in the image, so the partition
 table check is skipped. `g` with no argument wants an X clipboard the image does

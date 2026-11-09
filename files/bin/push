@@ -8,16 +8,18 @@ script=`realpath $0`
 scriptdir=`dirname $script`
 scriptname=`basename $script`
 
-# Pushes the branch the box was started on, to origin. The box holds no key:
-# the host runs the push, through the socket bin/run mounts with GIT=commit.
-# It takes no arguments, and the host would read none.
+# Pushes the branch the box was started on, to origin, and with it the tags
+# `tag` made in this box. The box holds no key: the host runs the push, through
+# the socket bin/run mounts with GIT=commit. It takes no arguments, and the
+# host would read none.
 
 sock=/run/git/push.sock
 
 case "${1:-}" in
     -h|--help)
         echo "usage: $scriptname"
-        echo "Pushes $(cat /run/git/branch 2>/dev/null || echo 'the branch the box was started on') to origin, through the host; a GIT=commit box only."
+        echo "Pushes $(cat /run/git/branch 2>/dev/null || echo 'the branch the box was started on') to origin, through the host, with the tags"
+        echo "made by tag in this box. A GIT=commit box only."
         exit 0 ;;
 esac
 if test $# -gt 0; then

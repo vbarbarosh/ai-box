@@ -9,12 +9,15 @@ scriptdir=`dirname $script`
 scriptname=`basename $script`
 
 # git, except that in a GIT=commit box (bin/run mounts /run/git) git commit,
-# push and pull say which command does it instead of failing on a read-only
-# .git or a missing key. Everything else goes to git as it is.
+# push and pull, and git tag when it makes or deletes one, say which command
+# does it instead of failing on a read-only .git or a missing key. Everything
+# else goes to git as it is, listing tags included.
 
 if test -d /run/git; then
     skip=
+    arg_count=0
     for arg in "$@"; do
+        arg_count=$((arg_count + 1))
         if test -n "$skip"; then
             skip=
             continue
@@ -25,6 +28,23 @@ if test -d /run/git; then
             commit|push|pull)
                 echo "git $arg: .git is read-only in this box; the host does it: run '$arg' (see '$arg --help')" >&2
                 exit 1 ;;
+            tag)
+                # No word after it, or an option that lists or verifies: read only.
+                is_reading=
+                if test $# -eq "$arg_count"; then
+                    is_reading=1
+                fi
+                for tag_arg in "${@:arg_count+1}"; do
+                    case "$tag_arg" in
+                        -l|--list|-n*|-v|--verify|--contains*|--no-contains*|--points-at*|--merged*|--no-merged*|--sort*|--format*|--column*|-i|--ignore-case)
+                            is_reading=1 ;;
+                    esac
+                done
+                if test -z "$is_reading"; then
+                    echo "git tag: .git is read-only in this box; the host does it: run 'tag' (see 'tag --help'); no tag is moved or deleted" >&2
+                    exit 1
+                fi
+                break ;;
             *) break ;;
         esac
     done

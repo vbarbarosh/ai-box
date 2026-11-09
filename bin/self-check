@@ -107,10 +107,10 @@ else
     report_missing optional "catatonit" "bin/configure  (apt: catatonit)"
 fi
 
-# The relays `commit`, `push` and `pull` inside a GIT=commit box talk to;
+# The relays `commit`, `tag`, `push` and `pull` inside a GIT=commit box talk to;
 # without it bin/run refuses GIT=commit.
 if command -v socat >/dev/null 2>&1; then
-    report_ok "socat" "commit, push, pull: GIT=commit"
+    report_ok "socat" "commit, tag, push, pull: GIT=commit"
 else
     report_missing optional "socat" "bin/configure  (apt: socat)"
 fi
