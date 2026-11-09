@@ -51,7 +51,7 @@ EXIT_MESSAGE="${RED}bin/build failed; whole output in $log${RESET}"
 # image keeps its layers in the cache: the next build takes them from there.
 image_old=
 is_image_pending=
-restore_old_image () {
+old_image_restore () {
     if test -n "$image_old"; then
         podman tag "$image_old" ai-box
         echo "ai-box is the previous image again: the new one shipped nothing" >&2
@@ -62,7 +62,7 @@ restore_old_image () {
 }
 exit_report () {
     if test -n "$is_image_pending"; then
-        restore_old_image || true
+        old_image_restore || true
     fi
     echo -e "$EXIT_MESSAGE"
 }
@@ -165,7 +165,7 @@ time0=$(date +%s)
 # Ctrl-C here is not a failed build: the image is built and tagged by now, and
 # only the warming is unfinished. Say so, rather than leaving the bare
 # "signal: interrupt" that podman prints, which reads like the build broke.
-stop_warming () {
+warming_stop () {
     trap - INT TERM
     if kill -0 $warm_pid 2>/dev/null; then
         # Signal descendants too: killing only the direct child can leave its
@@ -195,7 +195,7 @@ stop_warming () {
     EXIT_MESSAGE="${YELLOW}bin/build interrupted; ai-box is the previous image${RESET}"
     exit 130
 }
-trap stop_warming INT TERM
+trap warming_stop INT TERM
 before=$(free_bytes_of_store)
 shown=
 

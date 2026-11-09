@@ -22,6 +22,11 @@ cli(main);
 async function main()
 {
     const args = parse_args(process.argv.slice(2));
+    if (args.help) {
+        console.log(USAGE);
+        return;
+    }
+
     const tts = new MsEdgeTTS();
 
     if (args.list) {
@@ -66,7 +71,7 @@ function duration_from_mp3(file)
 
 function parse_args(argv)
 {
-    const out = {voice: DEFAULT_VOICE, list: false, out: null, text: null};
+    const out = {voice: DEFAULT_VOICE, list: false, help: false, out: null, text: null};
     const rest = [];
     for (let i = 0, end = argv.length; i < end; ++i) {
         switch (argv[i]) {
@@ -81,9 +86,8 @@ function parse_args(argv)
             break;
         case '-h':
         case '--help':
-            console.log(USAGE);
-            process.exit(0);
-            break;
+            out.help = true;
+            return out;
         default:
             rest.push(argv[i]);
         }

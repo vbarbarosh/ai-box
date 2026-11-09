@@ -98,20 +98,20 @@ fi
 # Your ssh-agent stays outside. podman passes no variable it is not given, so
 # SSH_AUTH_SOCK never enters; but a mount that holds the socket hands it in,
 # and the box signs with every key the agent holds. Read-only does not help.
-agent=
+ssh_agent_socket=
 if test -n "$workspace" && test -S "${SSH_AUTH_SOCK:-}"; then
-    agent=$(realpath "$SSH_AUTH_SOCK")
+    ssh_agent_socket=$(realpath "$SSH_AUTH_SOCK")
 fi
-refuse_agent () {
-    case "$agent" in
+ssh_agent_refuse () {
+    case "$ssh_agent_socket" in
         "$2"/*)
-            echo "error: $1 ($2) holds your ssh-agent's socket ($agent);" >&2
+            echo "error: $1 ($2) holds your ssh-agent's socket ($ssh_agent_socket);" >&2
             echo "       mounted, it would let the box use every key the agent holds." >&2
             exit 1 ;;
     esac
 }
 if test -n "$workspace"; then
-    refuse_agent "the workspace" "$workspace"
+    ssh_agent_refuse "the workspace" "$workspace"
 fi
 
 # Fail fast when the image is not built. Without this podman treats `ai-box` as
@@ -198,7 +198,7 @@ fi
 rundir=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/ai-box.XXXXXX")
 relays=()
 git_placeholder=
-cleanup () {
+exit_cleanup () {
     if test "${#relays[@]}" -gt 0; then
         kill "${relays[@]}" 2>/dev/null || true
     fi
@@ -217,15 +217,15 @@ cleanup () {
     fi
     rm -rf "$rundir"
 }
-trap cleanup EXIT
+trap exit_cleanup EXIT
 
 # Read-only, mounted over the read-write workspace, always: a box with write
 # access to .git can rewrite history, move or delete any branch, drop stashes.
 # GIT=commit gives the agent commit, tag, push and pull through the host instead;
 # see the relays below.
 case "${GIT:-}" in
-    "") git_relays= ;;
-    commit) git_relays=1 ;;
+    "") is_git_relayed= ;;
+    commit) is_git_relayed=1 ;;
     rw)
         echo "error: GIT=rw is gone: .git stays read-only, and GIT=commit" >&2
         echo "       commits, pushes and pulls through the host" >&2
@@ -305,11 +305,11 @@ mask_mount () {
 
 masked_paths=()
 if test -n "$workspace"; then
-    while IFS= read -r -d '' f; do
-        f="${f#"$workspace"/}"
-        test -f "$workspace/$f" || continue
-        mask_mount "/app/$f" "$workspace/$f"
-        masked_paths+=("$f")
+    while IFS= read -r -d '' env_file; do
+        env_file="${env_file#"$workspace"/}"
+        test -f "$workspace/$env_file" || continue
+        mask_mount "/app/$env_file" "$workspace/$env_file"
+        masked_paths+=("$env_file")
     done < <(env_files_print "$workspace")
     shopt -s nullglob dotglob
     mask_words=()
@@ -322,28 +322,28 @@ if test -n "$workspace"; then
             echo "ai-box: MASK: nothing matches $mask_word in the workspace, skipped" >&2
         fi
         for mask_match in "${mask_matches[@]}"; do
-            f=$(realpath -m -s --relative-to="$workspace" -- "$mask_match")
-            case "$f" in
+            mask_path=$(realpath -m -s --relative-to="$workspace" -- "$mask_match")
+            case "$mask_path" in
                 .|..|../*)
                     echo "ai-box: MASK: $mask_match is not inside the workspace, skipped" >&2
                     continue ;;
                 .git|.git/*)
-                    echo "ai-box: MASK: $f is the repository itself, skipped" >&2
+                    echo "ai-box: MASK: $mask_path is the repository itself, skipped" >&2
                     continue ;;
             esac
-            if ! test -f "$workspace/$f" && ! test -d "$workspace/$f"; then
-                echo "ai-box: MASK: no $f in the workspace, skipped" >&2
+            if ! test -f "$workspace/$mask_path" && ! test -d "$workspace/$mask_path"; then
+                echo "ai-box: MASK: no $mask_path in the workspace, skipped" >&2
                 continue
             fi
             is_masked=
             for masked_path in "${masked_paths[@]}"; do
-                if test "$masked_path" = "$f"; then
+                if test "$masked_path" = "$mask_path"; then
                     is_masked=1
                 fi
             done
             if test -z "$is_masked"; then
-                mask_mount "/app/$f" "$workspace/$f"
-                masked_paths+=("$f")
+                mask_mount "/app/$mask_path" "$workspace/$mask_path"
+                masked_paths+=("$mask_path")
             fi
         done
     done
@@ -365,7 +365,7 @@ fi
 # either, in any of the four: a hook is a file of the work tree or runs one,
 # the box writes the work tree, and the host would run the box's code as you.
 # The relays end with the box.
-if test -n "$git_relays"; then
+if test -n "$is_git_relayed"; then
     if test -n "$git_placeholder"; then
         echo "error: GIT=commit, but $workspace is not a git repository;" >&2
         echo "       run git init there first: the box cannot make one" >&2
@@ -389,9 +389,9 @@ if test -n "$git_relays"; then
     relaydir=$rundir/git
     mkdir -p "$relaydir/box"
     echo "$branch" > "$relaydir/box/branch"
-    # relay <name> < body: serves the script on box/<name>.sock. Each
+    # relay_start <name> < body: serves the script on box/<name>.sock. Each
     # connection runs it once: the box's bytes on its stdin, its output back.
-    relay () {
+    relay_start () {
         local name=$1
         {
             echo '#!/bin/bash'
@@ -450,7 +450,7 @@ EOF
             sleep 0.05
         done
     }
-    relay commit <<'EOF'
+    relay_start commit <<'EOF'
 # A message ended by a NUL, then the patch. The patch goes on HEAD in a scratch
 # index, so neither your staging nor the working tree is read or changed; then
 # git commit, with no hook run, and your index follows for the paths it touched.
@@ -524,7 +524,7 @@ commit () {
 commit 2>&1
 echo "commit: exit $?"
 EOF
-    relay tag <<'EOF'
+    relay_start tag <<'EOF'
 # A name ended by a NUL, then the message of an annotated tag, or nothing. The
 # tag goes on the commit the branch is at. A name that is there already on
 # that commit counts as made; on another commit it is refused: no tag is
@@ -568,7 +568,7 @@ tag () {
 tag 2>&1
 echo "tag: exit $?"
 EOF
-    relay push <<'EOF'
+    relay_start push <<'EOF'
 # The branch, and with it the tags `tag` made for this box, those that are
 # still there. A tag of your own is not sent: it is yours to push.
 push () {
@@ -585,7 +585,7 @@ push () {
 push </dev/null 2>&1
 echo "push: exit $?"
 EOF
-    relay pull <<'EOF'
+    relay_start pull <<'EOF'
 pull () {
     check_branch || return 1
     git fetch --no-tags --no-recurse-submodules origin "+refs/heads/$branch:refs/remotes/origin/$branch" || return
@@ -632,7 +632,7 @@ if test -n "${REPOS_PICK+set}" && test "${#repos_pick[@]}" = 0; then
 elif test -z "${REPOS+set}"; then
     if test -e "$HOME/repos"; then
         repos=$(realpath "$HOME/repos")
-        refuse_agent "the default ~/repos" "$repos"
+        ssh_agent_refuse "the default ~/repos" "$repos"
     fi
 elif test -n "$REPOS"; then
     if ! test -d "$REPOS"; then
@@ -649,7 +649,7 @@ elif test -n "$REPOS"; then
         echo "error: refusing to mount / as REPOS" >&2
         exit 1
     fi
-    refuse_agent REPOS "$repos"
+    ssh_agent_refuse REPOS "$repos"
 fi
 
 # The repositories /repos holds, as folders of the host: every one, or the
@@ -659,9 +659,9 @@ if test -z "${REPOS_PICK+set}"; then
     if test -n "$repos"; then
         opts+=(-v "$repos:/repos:ro")
         shopt -s nullglob dotglob
-        for dir in "$repos"/*/; do
-            dir=${dir%/}
-            test -L "$dir" || repo_dirs+=("$dir")
+        for repo_dir in "$repos"/*/; do
+            repo_dir=${repo_dir%/}
+            test -L "$repo_dir" || repo_dirs+=("$repo_dir")
         done
         shopt -u nullglob dotglob
     fi
@@ -672,24 +672,24 @@ else
                 echo "ai-box: REPOS_PICK: $name is not a repository name, skipped" >&2
                 continue ;;
         esac
-        dir=$repos/$name
-        if test -z "$repos" || ! test -d "$dir"; then
+        picked_dir=$repos/$name
+        if test -z "$repos" || ! test -d "$picked_dir"; then
             echo "ai-box: REPOS_PICK: no $name in ${repos:-REPOS}, skipped" >&2
             continue
         fi
-        if test -L "$dir"; then
+        if test -L "$picked_dir"; then
             echo "ai-box: REPOS_PICK: $name is a symlink, skipped" >&2
             continue
         fi
         is_picked=
         for repo_dir in "${repo_dirs[@]}"; do
-            if test "$repo_dir" = "$dir"; then
+            if test "$repo_dir" = "$picked_dir"; then
                 is_picked=1
             fi
         done
         if test -z "$is_picked"; then
-            repo_dirs+=("$dir")
-            opts+=(-v "$dir:/repos/$name:ro")
+            repo_dirs+=("$picked_dir")
+            opts+=(-v "$picked_dir:/repos/$name:ro")
         fi
     done
 fi
@@ -705,16 +705,16 @@ if test -n "$repos"; then
     esac
 fi
 if test "${#repo_dirs[@]}" -gt 0; then
-    while IFS= read -r -d '' f; do
-        test -f "$f" || continue
-        mask_mount "/repos/${f#"$repos"/}" "$f"
+    while IFS= read -r -d '' env_file; do
+        test -f "$env_file" || continue
+        mask_mount "/repos/${env_file#"$repos"/}" "$env_file"
     done < <(env_files_print "${repo_dirs[@]}")
 fi
 if test -n "$workspace_in_repos"; then
-    for dir in "${repo_dirs[@]}"; do
-        if test "$dir" = "$repos/${workspace_in_repos%%/*}"; then
-            for f in "${masked_paths[@]}"; do
-                mask_mount "/repos/$workspace_in_repos/$f" "$workspace/$f"
+    for repo_dir in "${repo_dirs[@]}"; do
+        if test "$repo_dir" = "$repos/${workspace_in_repos%%/*}"; then
+            for masked_path in "${masked_paths[@]}"; do
+                mask_mount "/repos/$workspace_in_repos/$masked_path" "$workspace/$masked_path"
             done
         fi
     done
@@ -733,7 +733,7 @@ sockets=
 if test -z "${SOCKETS+set}"; then
     if test -e "$HOME/sockets"; then
         sockets=$(realpath "$HOME/sockets")
-        refuse_agent "the default ~/sockets" "$sockets"
+        ssh_agent_refuse "the default ~/sockets" "$sockets"
     fi
 elif test -n "$SOCKETS"; then
     if ! test -d "$SOCKETS"; then
@@ -750,7 +750,7 @@ elif test -n "$SOCKETS"; then
         echo "error: refusing to mount / as SOCKETS" >&2
         exit 1
     fi
-    refuse_agent SOCKETS "$sockets"
+    ssh_agent_refuse SOCKETS "$sockets"
 fi
 if test -n "$sockets"; then
     opts+=(-v "$sockets:/sockets:ro")
@@ -777,7 +777,7 @@ if test -n "$agentdir"; then
         echo "error: refusing to mount / as AGENTDIR" >&2
         exit 1
     fi
-    refuse_agent AGENTDIR "$agentdir"
+    ssh_agent_refuse AGENTDIR "$agentdir"
     opts+=(-v "$agentdir:/agentdir")
 fi
 
@@ -804,7 +804,7 @@ if test -n "$agents"; then
         echo "error: refusing to mount / as AGENTS" >&2
         exit 1
     fi
-    refuse_agent AGENTS "$agents"
+    ssh_agent_refuse AGENTS "$agents"
     opts+=(-v "$agents:/agents:ro")
 fi
 
@@ -856,8 +856,8 @@ fi
 readonly_paths=()
 read -r -d '' -a readonly_paths <<<"${READONLY:-}" || true
 declare -A readonly_seen=()
-for inside in "${readonly_paths[@]}"; do
-    inside=${inside%/}
+for readonly_path in "${readonly_paths[@]}"; do
+    inside=${readonly_path%/}
     case "$inside/" in
         */./*|*/../*|*//*|*:*)
             echo "error: READONLY takes plain paths, no ., .., empty components or colons: $inside" >&2
@@ -1019,7 +1019,7 @@ fi
 # is written there is no container yet, and the signal goes to podman run.
 # Ctrl-C with a terminal never gets here: the tty is raw and the box sees
 # the keystroke. Only a bare SIGKILL to bin/run leaves the box running.
-stop_box () {
+box_stop () {
     trap '' HUP INT TERM
     if test -s "$rundir/cid"; then
         ( setsid podman stop --time 3 "$(cat "$rundir/cid")" </dev/null >/dev/null 2>&1 & )
@@ -1027,7 +1027,7 @@ stop_box () {
         kill -TERM "$box_pid" 2>/dev/null
     fi
 }
-trap stop_box HUP INT TERM
+trap box_stop HUP INT TERM
 "${box[@]}" <&0 &
 box_pid=$!
 

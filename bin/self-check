@@ -62,13 +62,13 @@ format_bytes () {
     }'
 }
 
-# report_ok <label> <detail>
-report_ok () {
+# ok_report <label> <detail>
+ok_report () {
     printf '  %s%-9s%s %-26s %s\n' "$green" ok "$reset" "$1" "${2-}"
 }
 
-# report_missing <required|optional> <label> <how to fix>
-report_missing () {
+# missing_report <required|optional> <label> <how to fix>
+missing_report () {
     if test "$1" = required; then
         missing_required=$((missing_required + 1))
         printf '  %s%-9s%s %-26s %s%s%s\n' "$red" MISSING "$reset" "$2" "$dim" "${3-}" "$reset"
@@ -81,10 +81,10 @@ report_missing () {
 # check_binary <binary> <label> <package>
 check_binary () {
     if command -v "$1" >/dev/null 2>&1; then
-        v=$($1 --version 2>/dev/null | head -1 | cut -c1-40 || true)
-        report_ok "$2" "${v:-present at $(command -v "$1")}"
+        version_line=$($1 --version 2>/dev/null | head -1 | cut -c1-40 || true)
+        ok_report "$2" "${version_line:-present at $(command -v "$1")}"
     else
-        report_missing required "$2" "bin/configure  (apt: $3)"
+        missing_report required "$2" "bin/configure  (apt: $3)"
     fi
 }
 
@@ -94,7 +94,7 @@ check_binary podman    podman    podman
 # bin/run's --userns=keep-id:uid=1000,gid=1000 needs 4.3; Ubuntu 22.04 has 3.4.4.
 podman_have=$(podman --version 2>/dev/null | awk '{print $3}' || true)
 if test -n "$podman_have" && dpkg --compare-versions "$podman_have" lt 4.3 2>/dev/null; then
-    report_missing required "podman 4.3" "$podman_have here; upgrade to Ubuntu 24.04"
+    missing_report required "podman 4.3" "$podman_have here; upgrade to Ubuntu 24.04"
 fi
 check_binary crun      crun      crun
 check_binary newuidmap newuidmap uidmap
@@ -102,52 +102,52 @@ check_binary newuidmap newuidmap uidmap
 # bin/run puts it at PID 1 of the box (--init) whenever it is here; without it
 # the box still runs, with bash reaping nothing.
 if test -x /usr/libexec/podman/catatonit || command -v catatonit >/dev/null 2>&1; then
-    report_ok "catatonit" "init for the box"
+    ok_report "catatonit" "init for the box"
 else
-    report_missing optional "catatonit" "bin/configure  (apt: catatonit)"
+    missing_report optional "catatonit" "bin/configure  (apt: catatonit)"
 fi
 
 # The relays `commit`, `tag`, `push` and `pull` inside a GIT=commit box talk to;
 # without it bin/run refuses GIT=commit.
 if command -v socat >/dev/null 2>&1; then
-    report_ok "socat" "commit, tag, push, pull: GIT=commit"
+    ok_report "socat" "commit, tag, push, pull: GIT=commit"
 else
-    report_missing optional "socat" "bin/configure  (apt: socat)"
+    missing_report optional "socat" "bin/configure  (apt: socat)"
 fi
 
 if command -v pasta >/dev/null 2>&1; then
-    report_ok "pasta" "$(pasta --version 2>/dev/null | head -1 | cut -c1-40)"
+    ok_report "pasta" "$(pasta --version 2>/dev/null | head -1 | cut -c1-40)"
 elif command -v slirp4netns >/dev/null 2>&1; then
-    report_ok "slirp4netns" "$(slirp4netns --version 2>/dev/null | head -1 | cut -c1-40)"
+    ok_report "slirp4netns" "$(slirp4netns --version 2>/dev/null | head -1 | cut -c1-40)"
 else
-    report_missing required "pasta/slirp4netns" "bin/configure  (apt: passt)"
+    missing_report required "pasta/slirp4netns" "bin/configure  (apt: passt)"
 fi
 
 echo
 echo "kernel"
 if test -c /dev/fuse; then
-    report_ok "/dev/fuse" "inner overlay driver"
+    ok_report "/dev/fuse" "inner overlay driver"
 else
-    report_missing required "/dev/fuse" "modprobe fuse"
+    missing_report required "/dev/fuse" "modprobe fuse"
 fi
 
 if test -c /dev/net/tun; then
-    report_ok "/dev/net/tun" "inner network uplink"
+    ok_report "/dev/net/tun" "inner network uplink"
 else
-    report_missing required "/dev/net/tun" "modprobe tun"
+    missing_report required "/dev/net/tun" "modprobe tun"
 fi
 
 if test "$(stat -fc %T /sys/fs/cgroup)" = cgroup2fs; then
-    report_ok "cgroup v2" ""
+    ok_report "cgroup v2" ""
 else
-    report_missing required "cgroup v2" "boot with systemd.unified_cgroup_hierarchy=1"
+    missing_report required "cgroup v2" "boot with systemd.unified_cgroup_hierarchy=1"
 fi
 
 userns=$(cat /proc/sys/user/max_user_namespaces 2>/dev/null || echo 0)
 if test "$userns" -gt 0; then
-    report_ok "user namespaces" "max $userns"
+    ok_report "user namespaces" "max $userns"
 else
-    report_missing required "user namespaces" "sysctl user.max_user_namespaces=15000"
+    missing_report required "user namespaces" "sysctl user.max_user_namespaces=15000"
 fi
 
 # bin/run limits the box (--pids-limit, --memory, --cpus) only through the
@@ -162,11 +162,11 @@ for controller in pids memory cpu; do
     esac
 done
 if test -z "$controllers_missing"; then
-    report_ok "cgroup delegation" "pids memory cpu"
+    ok_report "cgroup delegation" "pids memory cpu"
 elif test -n "$controllers_delegated"; then
-    report_missing optional "cgroup delegation" "have${controllers_delegated}; box runs without${controllers_missing} limit"
+    missing_report optional "cgroup delegation" "have${controllers_delegated}; box runs without${controllers_missing} limit"
 else
-    report_missing optional "cgroup delegation" "none; box runs with no limits (needs a systemd user session)"
+    missing_report optional "cgroup delegation" "none; box runs with no limits (needs a systemd user session)"
 fi
 
 echo
@@ -179,12 +179,12 @@ if test "$(id -u)" -eq 0 && test -z "${SUDO_USER-}"; then
 fi
 # The inner engine carves its own range out of this one, so a short range is
 # the setting that breaks nesting with an opaque newuidmap error.
-for f in /etc/subuid /etc/subgid; do
-    n=$(awk -F: -v u="$me" '$1==u {print $3; exit}' "$f" 2>/dev/null || true)
-    if test "${n:-0}" -ge 65536 2>/dev/null; then
-        report_ok "$f" "$n ids"
+for subid_file in /etc/subuid /etc/subgid; do
+    ids_count=$(awk -F: -v u="$me" '$1==u {print $3; exit}' "$subid_file" 2>/dev/null || true)
+    if test "${ids_count:-0}" -ge 65536 2>/dev/null; then
+        ok_report "$subid_file" "$ids_count ids"
     else
-        report_missing required "$f" "bin/configure  (have ${n:-0}, need 65536)"
+        missing_report required "$subid_file" "bin/configure  (have ${ids_count:-0}, need 65536)"
     fi
 done
 
@@ -206,21 +206,21 @@ echo "host storage"
 driver=$(podman info --format '{{.Store.GraphDriverName}}' 2>/dev/null || echo unknown)
 native=$(podman info --format '{{index .Store.GraphStatus "Native Overlay Diff"}}' 2>/dev/null || echo "")
 if test "$driver" = overlay && test "$native" = true; then
-    report_ok "graph driver" "native overlay (podman $(podman --version 2>/dev/null | awk '{print $3}'))"
+    ok_report "graph driver" "native overlay (podman $(podman --version 2>/dev/null | awk '{print $3}'))"
     printf '  %s%-9s%s %-26s %s%s%s\n' "$dim" "" "$reset" "" "$dim" \
         "if bin/build's warming step is slow, that is the layer copy; it" "$reset"
     printf '  %s%-9s%s %-26s %s%s%s\n' "$dim" "" "$reset" "" "$dim" \
         "runs after any non-cached build; fuse-overlayfs is not a fix" "$reset"
 elif test "$driver" = unknown; then
-    report_missing optional "graph driver" "podman did not say"
+    missing_report optional "graph driver" "podman did not say"
 else
-    report_ok "graph driver" "$driver${native:+ (native diff: $native)}"
+    ok_report "graph driver" "$driver${native:+ (native diff: $native)}"
 fi
 
 echo
 echo "image"
 if podman image exists ai-box 2>/dev/null; then
-    report_ok "ai-box" "$(format_bytes "$(podman image inspect ai-box --format '{{.Size}}' 2>/dev/null || echo 0)")"
+    ok_report "ai-box" "$(format_bytes "$(podman image inspect ai-box --format '{{.Size}}' 2>/dev/null || echo 0)")"
     # What the build resolved: every component the Dockerfile fetches at its
     # current version is recorded there, one name=version per line. No
     # --userns here, so this never triggers the id-mapped layer copy; and no
@@ -230,96 +230,96 @@ if podman image exists ai-box 2>/dev/null; then
         if test -n "$versions"; then
             echo "$manifest" | sed "s/^/  ${dim}          /; s/\$/${reset}/"
         else
-            report_ok "versions" "$(echo "$manifest" | wc -l) recorded (--versions to list)"
+            ok_report "versions" "$(echo "$manifest" | wc -l) recorded (--versions to list)"
         fi
     fi
 else
-    report_missing optional "ai-box" "bin/build"
+    missing_report optional "ai-box" "bin/build"
 fi
 
 # What the image leaves out -- browsers, whisper model, Chrome, agent CLIs --
 # is in data/extras, with its own versions file in the same format.
 if test -f "$data/extras/versions"; then
     if test -n "$versions"; then
-        report_ok "extras" "$short/extras, $(du -sh "$data/extras" 2>/dev/null | cut -f1)"
+        ok_report "extras" "$short/extras, $(du -sh "$data/extras" 2>/dev/null | cut -f1)"
         sed "s/^/  ${dim}          /; s/\$/${reset}/" "$data/extras/versions"
     else
-        report_ok "extras" "$short/extras, $(wc -l < "$data/extras/versions") recorded"
+        ok_report "extras" "$short/extras, $(wc -l < "$data/extras/versions") recorded"
     fi
 else
-    report_missing optional "extras" "bin/build; bin/run needs it"
+    missing_report optional "extras" "bin/build; bin/run needs it"
 fi
 
 if test -d "$data/images"; then
-    report_ok "shared image store" "$(podman --root "$data/images" --storage-driver overlay images -q 2>/dev/null | wc -l) images"
+    ok_report "shared image store" "$(podman --root "$data/images" --storage-driver overlay images -q 2>/dev/null | wc -l) images"
 else
-    report_missing optional "shared image store" "podman --root $short/images pull alpine:latest"
+    missing_report optional "shared image store" "podman --root $short/images pull alpine:latest"
 fi
 
 echo
 # Agent state, all under $short, undotted here and dotted inside the box.
 # Named by leaf so the columns stay aligned.
 echo "mounts bin/run will make ${dim}(box state under $short)${reset}"
-if test -d "$data/claude";      then report_ok "claude"      "agent state, rw";   else report_missing optional "claude"      "created on first run"; fi
-if test -f "$data/claude.json"; then report_ok "claude.json" "agent config, rw";  else report_missing optional "claude.json" "created on first run"; fi
-if test -d "$data/codex";       then report_ok "codex"       "agent state, rw";   else report_missing optional "codex"       "created on first run"; fi
-if test -f "$data/codex.json";  then report_ok "codex.json"  "agent config, rw";  else report_missing optional "codex.json"  "created on first run"; fi
+if test -d "$data/claude";      then ok_report "claude"      "agent state, rw";   else missing_report optional "claude"      "created on first run"; fi
+if test -f "$data/claude.json"; then ok_report "claude.json" "agent config, rw";  else missing_report optional "claude.json" "created on first run"; fi
+if test -d "$data/codex";       then ok_report "codex"       "agent state, rw";   else missing_report optional "codex"       "created on first run"; fi
+if test -f "$data/codex.json";  then ok_report "codex.json"  "agent config, rw";  else missing_report optional "codex.json"  "created on first run"; fi
 repos_pick=()
 if test -n "${REPOS_PICK+set}"; then
     read -r -d '' -a repos_pick <<<"$REPOS_PICK" || true
 fi
 # shellcheck disable=SC2088  # the tilde is a label, not a path
 if test -n "${REPOS_PICK+set}" && test "${#repos_pick[@]}" = 0; then
-    report_ok 'REPOS_PICK'  "empty: no /repos"
+    ok_report 'REPOS_PICK'  "empty: no /repos"
 elif test -z "${REPOS+set}"; then
-    if test -d "$HOME/repos";    then report_ok '~/repos'      "/repos, read-only"; else report_missing optional '~/repos'      "mkdir it, or set REPOS, to mount it"; fi
+    if test -d "$HOME/repos";    then ok_report '~/repos'      "/repos, read-only"; else missing_report optional '~/repos'      "mkdir it, or set REPOS, to mount it"; fi
 elif test -z "$REPOS"; then
-    report_ok 'REPOS'       "empty: no /repos"
+    ok_report 'REPOS'       "empty: no /repos"
 elif test -d "$REPOS"; then
-    report_ok 'REPOS'       "$REPOS as /repos, read-only"
+    ok_report 'REPOS'       "$REPOS as /repos, read-only"
 else
-    report_missing required 'REPOS'       "not a directory: $REPOS"
+    missing_report required 'REPOS'       "not a directory: $REPOS"
 fi
 if test "${#repos_pick[@]}" -gt 0; then
-    report_ok 'REPOS_PICK'  "only ${repos_pick[*]}, each at /repos/<name>"
+    ok_report 'REPOS_PICK'  "only ${repos_pick[*]}, each at /repos/<name>"
     repos_folder=${REPOS-$HOME/repos}
     for name in "${repos_pick[@]}"; do
         if test -z "$repos_folder" || ! test -d "$repos_folder/$name"; then
-            report_missing optional 'REPOS_PICK'  "no $name in ${repos_folder:-REPOS}, skipped"
+            missing_report optional 'REPOS_PICK'  "no $name in ${repos_folder:-REPOS}, skipped"
         fi
     done
 fi
 # shellcheck disable=SC2088  # the tilde is a label, not a path
 if test -z "${SOCKETS+set}"; then
-    if test -d "$HOME/sockets";  then report_ok '~/sockets'    "/sockets, read-only"; else report_missing optional '~/sockets'    "mkdir it, or set SOCKETS, to mount it"; fi
+    if test -d "$HOME/sockets";  then ok_report '~/sockets'    "/sockets, read-only"; else missing_report optional '~/sockets'    "mkdir it, or set SOCKETS, to mount it"; fi
 elif test -z "$SOCKETS"; then
-    report_ok 'SOCKETS'     "empty: no /sockets"
+    ok_report 'SOCKETS'     "empty: no /sockets"
 elif test -d "$SOCKETS"; then
-    report_ok 'SOCKETS'     "$SOCKETS as /sockets, read-only"
+    ok_report 'SOCKETS'     "$SOCKETS as /sockets, read-only"
 else
-    report_missing required 'SOCKETS'     "not a directory: $SOCKETS"
+    missing_report required 'SOCKETS'     "not a directory: $SOCKETS"
 fi
 if test -z "${AGENTS:-}"; then
-    report_ok 'AGENTS'      "not set: no /agents"
+    ok_report 'AGENTS'      "not set: no /agents"
 elif test -d "$AGENTS"; then
-    report_ok 'AGENTS'      "$AGENTS as /agents, read-only"
+    ok_report 'AGENTS'      "$AGENTS as /agents, read-only"
 else
-    report_missing required 'AGENTS'      "not a directory: $AGENTS"
+    missing_report required 'AGENTS'      "not a directory: $AGENTS"
 fi
 
 echo
 echo "sign-ins bin/run will pass ${dim}(by name, never written to $short)${reset}"
 for name in CLAUDE_CODE_OAUTH_TOKEN CODEX_API_KEY; do
     if test -n "${!name:-}"; then
-        report_ok "$name" "set: the box signs in with it"
+        ok_report "$name" "set: the box signs in with it"
     else
-        report_ok "$name" "not set: the shared sign-in"
+        ok_report "$name" "not set: the shared sign-in"
     fi
 done
 if test -n "${OPENAI_API_KEY:-}"; then
-    report_ok OPENAI_API_KEY "set: passed in; codex signs in with CODEX_API_KEY"
+    ok_report OPENAI_API_KEY "set: passed in; codex signs in with CODEX_API_KEY"
 else
-    report_ok OPENAI_API_KEY "not set"
+    ok_report OPENAI_API_KEY "not set"
 fi
 
 # Stale container records naming a runtime that is no longer installed make
@@ -340,9 +340,9 @@ if test -n "$deep"; then
         # no \r\n; the tr stays for a bin/run invoked some other way.
         if nested_line=$("$scriptdir/run" docker run --rm alpine echo nested-ok 2>&1 </dev/null | tr -d '\r' | tail -1) \
             && test "$nested_line" = nested-ok; then
-            report_ok "container inside box" "docker run works"
+            ok_report "container inside box" "docker run works"
         else
-            report_missing required "container inside box" "$nested_line"
+            missing_report required "container inside box" "$nested_line"
         fi
 
         # Fresh boxes accept explicit credentials but never saved sign-ins or
@@ -385,9 +385,9 @@ EOF
             fi
         done
         if test -n "$fresh_ok"; then
-            report_ok "fresh boxes" "explicit credentials only, writable /app, no saved state"
+            ok_report "fresh boxes" "explicit credentials only, writable /app, no saved state"
         else
-            report_missing required "fresh boxes" "$fresh_line"
+            missing_report required "fresh boxes" "$fresh_line"
         fi
 
         # The checkout is a workspace that would reveal data/ through /app.
@@ -408,9 +408,9 @@ echo fresh-app-ok
 EOF
         ) && test "$(echo "$fresh_app_line" | tr -d '\r' | tail -1)" = fresh-app-ok \
             && ! test -e "$data/.ai-box-fresh-check"; then
-            report_ok "fresh workspace" "checkout data hidden; host state unchanged"
+            ok_report "fresh workspace" "checkout data hidden; host state unchanged"
         else
-            report_missing required "fresh workspace" "$fresh_app_line"
+            missing_report required "fresh workspace" "$fresh_app_line"
         fi
 
         # The host publishes into a protected folder after the box is ready;
@@ -432,9 +432,9 @@ EOF
             fi
         done
         if test -n "$readonly_paths_ok"; then
-            report_ok "read-only paths" "outside paths, traversal, volume options and symlinks refused"
+            ok_report "read-only paths" "outside paths, traversal, volume options and symlinks refused"
         else
-            report_missing required "read-only paths" "$inside: $readonly_line"
+            missing_report required "read-only paths" "$inside: $readonly_line"
         fi
         echo host-published > "$readonly_dir/pending"
         (
@@ -470,9 +470,9 @@ done
 exit 1
 EOF
         ) && test "$(echo "$readonly_line" | tr -d '\r' | tail -1)" = readonly-ok; then
-            report_ok "read-only folders" "writes refused, siblings writable, host rename visible"
+            ok_report "read-only folders" "writes refused, siblings writable, host rename visible"
         else
-            report_missing required "read-only folders" "$readonly_line"
+            missing_report required "read-only folders" "$readonly_line"
         fi
         kill "$readonly_writer" 2>/dev/null || true
         wait "$readonly_writer" 2>/dev/null || true
@@ -536,15 +536,15 @@ EOF
                 && test "$(git -C "$boundary_dir/repo" rev-list --count HEAD)" = 2 \
                 && test -z "$(git -C "$boundary_dir/repo" ls-files sub .env)"; then
                 if test -e "$boundary_dir/hook-ran"; then
-                    report_missing required "boundary of a repository" "the relay ran a hook kept in the work tree"
+                    missing_report required "boundary of a repository" "the relay ran a hook kept in the work tree"
                 else
-                    report_ok "boundary of a repository" ".git read-only, secrets hidden, relay: no hook, no submodule"
+                    ok_report "boundary of a repository" ".git read-only, secrets hidden, relay: no hook, no submodule"
                 fi
             else
-                report_missing required "boundary of a repository" "$(echo "$boundary_line" | tr -d '\r' | tail -1)"
+                missing_report required "boundary of a repository" "$(echo "$boundary_line" | tr -d '\r' | tail -1)"
             fi
         else
-            report_missing optional "boundary of a repository" "needs git and socat on the host"
+            missing_report optional "boundary of a repository" "needs git and socat on the host"
         fi
 
         # A folder that is no repository does not become one, and nothing
@@ -560,9 +560,9 @@ echo plain-ok
 EOF
         ) && test "$(echo "$boundary_line" | tr -d '\r' | tail -1)" = plain-ok \
             && ! test -e "$boundary_dir/plain/.git"; then
-            report_ok "no .git where none was" "the box cannot make one; nothing left"
+            ok_report "no .git where none was" "the box cannot make one; nothing left"
         else
-            report_missing required "no .git where none was" "$(echo "$boundary_line" | tr -d '\r' | tail -1 | sed 's/^plain-ok$/a .git folder was left behind/')"
+            missing_report required "no .git where none was" "$(echo "$boundary_line" | tr -d '\r' | tail -1 | sed 's/^plain-ok$/a .git folder was left behind/')"
         fi
 
         # The box ends with bin/run: SIGTERM to the one ends the other.
@@ -589,13 +589,13 @@ EOF
             sleep 0.5
         done
         if test -n "$is_box_seen" && test -n "$is_box_gone"; then
-            report_ok "the box ends with bin/run" "SIGTERM to bin/run stopped it"
+            ok_report "the box ends with bin/run" "SIGTERM to bin/run stopped it"
         else
-            report_missing required "the box ends with bin/run" "seen: ${is_box_seen:-no}, gone: ${is_box_gone:-no}"
+            missing_report required "the box ends with bin/run" "seen: ${is_box_seen:-no}, gone: ${is_box_gone:-no}"
         fi
         rm -rf "$boundary_dir"
     else
-        report_missing optional "container inside box" "no image yet; bin/build"
+        missing_report optional "container inside box" "no image yet; bin/build"
     fi
 fi
 

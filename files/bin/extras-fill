@@ -65,7 +65,7 @@ playwright_locations_from_dry_run () {
 
 # The current entry of chrome/ or npm/: a relative link, so it resolves the
 # same on the host and in the box, replaced in one rename.
-set_current () {
+current_set () {
     ln -sfn $2 $root/$1/.current.tmp
     mv -T $root/$1/.current.tmp $root/$1/current
 }
@@ -88,7 +88,7 @@ if ! test -d $root/npm/$npm_name; then
     $root/npm/.$npm_name.tmp/bin/codex --version
     mv $root/npm/.$npm_name.tmp $root/npm/$npm_name
 fi
-set_current npm $npm_name
+current_set npm $npm_name
 wanted+=(npm/$npm_name)
 versions+=("claude-code=$claude_version" "codex=$codex_version")
 
@@ -186,7 +186,7 @@ if ! test -d $root/chrome/$chrome_version; then
     fi
     mv $root/chrome/.$chrome_version.tmp $root/chrome/$chrome_version
 fi
-set_current chrome $chrome_version
+current_set chrome $chrome_version
 $root/chrome/current/google-chrome --version
 wanted+=(chrome/$chrome_version)
 versions+=("google-chrome=$chrome_version")

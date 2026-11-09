@@ -50,8 +50,8 @@ if test "$(id -u)" -eq 0 && test -z "${SUDO_USER-}"; then
     exit 1
 fi
 
-# change <description> <command...>
-change () {
+# change_apply <description> <command...>
+change_apply () {
     local what=$1; shift
     if test -n "$dry"; then
         echo "  would: $what"
@@ -123,18 +123,18 @@ done
 # never gets this far.
 me=${SUDO_USER:-$(id -un)}
 subids_missing=()
-for f in /etc/subuid /etc/subgid; do
-    n=$(awk -F: -v u="$me" '$1==u {print $3; exit}' "$f" 2>/dev/null || true)
-    if test "${n:-0}" -ge 65536 2>/dev/null; then
+for subid_file in /etc/subuid /etc/subgid; do
+    ids_count=$(awk -F: -v u="$me" '$1==u {print $3; exit}' "$subid_file" 2>/dev/null || true)
+    if test "${ids_count:-0}" -ge 65536 2>/dev/null; then
         continue
-    elif test -n "${n:-}"; then
-        echo "  $f gives $me only $n ids, and 65536 are needed." >&2
+    elif test -n "${ids_count:-}"; then
+        echo "  $subid_file gives $me only $ids_count ids, and 65536 are needed." >&2
         echo "  Widen it by hand -- rewriting an existing range can collide" >&2
         echo "  with ids already used by containers you have:" >&2
-        echo "    sudo sed -i 's/^$me:.*/$me:100000:65536/' $f" >&2
+        echo "    sudo sed -i 's/^$me:.*/$me:100000:65536/' $subid_file" >&2
         exit 1
     else
-        subids_missing+=("$f")
+        subids_missing+=("$subid_file")
     fi
 done
 
@@ -163,7 +163,7 @@ for package in "${packages[@]}"; do
     esac
 done
 if test "${#packages_missing[@]}" -gt 0; then
-    change "apt-get install: ${packages_missing[*]}" sudo -n apt-get install -y "${packages_missing[@]}"
+    change_apply "apt-get install: ${packages_missing[*]}" sudo -n apt-get install -y "${packages_missing[@]}"
 fi
 
 echo
@@ -174,10 +174,10 @@ for module in "${modules[@]}"; do
     if test -c "$dev"; then
         echo "  present: $dev"
     else
-        change "modprobe $mod" sudo -n modprobe "$mod"
+        change_apply "modprobe $mod" sudo -n modprobe "$mod"
         # Survive a reboot.
         if ! grep -qxs "$mod" /etc/modules-load.d/ai-box.conf; then
-            change "persist $mod across reboots" \
+            change_apply "persist $mod across reboots" \
                 sudo -n tee -a /etc/modules-load.d/ai-box.conf <<<"$mod"
         fi
     fi
@@ -186,26 +186,26 @@ done
 echo
 echo "subordinate ids"
 granted=
-for f in /etc/subuid /etc/subgid; do
-    n=$(awk -F: -v u="$me" '$1==u {print $3; exit}' "$f" 2>/dev/null || true)
-    if test "${n:-0}" -ge 65536 2>/dev/null; then
-        echo "  present: $f has $n ids for $me"
+for subid_file in /etc/subuid /etc/subgid; do
+    ids_count=$(awk -F: -v u="$me" '$1==u {print $3; exit}' "$subid_file" 2>/dev/null || true)
+    if test "${ids_count:-0}" -ge 65536 2>/dev/null; then
+        echo "  present: $subid_file has $ids_count ids for $me"
     else
         # The first free block above every range already in the file, the way
         # useradd picks one. The first account on an Ubuntu install already
         # owns 100000-165535; handing a second account the same block would
         # let each one's containers read and write the other's files.
-        first=$(awk -F: '{ e = $2 + $3; if (e > m) m = e } END { print (m > 100000 ? m : 100000) }' "$f" 2>/dev/null || echo 100000)
+        first=$(awk -F: '{ e = $2 + $3; if (e > m) m = e } END { print (m > 100000 ? m : 100000) }' "$subid_file" 2>/dev/null || echo 100000)
         last=$((first + 65535))
-        case "$f" in
-            /etc/subuid) change "grant $me subuids $first-$last" sudo -n usermod --add-subuids "$first-$last" "$me" ;;
-            /etc/subgid) change "grant $me subgids $first-$last" sudo -n usermod --add-subgids "$first-$last" "$me" ;;
+        case "$subid_file" in
+            /etc/subuid) change_apply "grant $me subuids $first-$last" sudo -n usermod --add-subuids "$first-$last" "$me" ;;
+            /etc/subgid) change_apply "grant $me subgids $first-$last" sudo -n usermod --add-subgids "$first-$last" "$me" ;;
         esac
         granted=1
     fi
 done
 if test -n "$granted"; then
-    change "reload podman's view of the new range" sudo -n -u "$me" podman system migrate
+    change_apply "reload podman's view of the new range" sudo -n -u "$me" podman system migrate
 fi
 
 echo

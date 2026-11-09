@@ -16,14 +16,14 @@ const path = require('node:path');
  * means the box has not been opened for a while, and one run of the agent
  * inside it brings the token back.
  */
-const data = path.join(path.dirname(__dirname), 'data');
-const usage_config = {
-    claude_credentials_file: path.join(data, 'claude', '.credentials.json'),
-    codex_auth_file: path.join(data, 'codex', 'auth.json'),
+const DATA_DIR = path.join(path.dirname(__dirname), 'data');
+const USAGE_CONFIG = {
+    claude_credentials_file: path.join(DATA_DIR, 'claude', '.credentials.json'),
+    codex_auth_file: path.join(DATA_DIR, 'codex', 'auth.json'),
     display_time_zone: 'Europe/Chisinau',
     bar_width: 30,
 };
-const usage_column_gap = '   │   ';
+const USAGE_COLUMN_GAP = '   │   ';
 const HELP_TEXT = [
     'usage: usage',
     'Prints the rate-limit usage of the agents the box is logged in to, Claude and',
@@ -106,8 +106,8 @@ function usage_json_file_load(filename, agent)
 
 function usage_credentials_load()
 {
-    const claude_credentials = usage_json_file_load(usage_config.claude_credentials_file, 'claude');
-    const codex_auth = usage_json_file_load(usage_config.codex_auth_file, 'codex');
+    const claude_credentials = usage_json_file_load(USAGE_CONFIG.claude_credentials_file, 'claude');
+    const codex_auth = usage_json_file_load(USAGE_CONFIG.codex_auth_file, 'codex');
     const out = {
         claude_access_token: claude_credentials.claudeAiOauth?.accessToken,
         chatgpt_access_token: codex_auth.tokens?.access_token,
@@ -116,14 +116,14 @@ function usage_credentials_load()
 
     if (!out.claude_access_token) {
         throw new Error(
-            `Missing claudeAiOauth.accessToken in ${usage_config.claude_credentials_file}.`,
+            `Missing claudeAiOauth.accessToken in ${USAGE_CONFIG.claude_credentials_file}.`,
         );
     }
     if (!out.chatgpt_access_token) {
-        throw new Error(`Missing tokens.access_token in ${usage_config.codex_auth_file}.`);
+        throw new Error(`Missing tokens.access_token in ${USAGE_CONFIG.codex_auth_file}.`);
     }
     if (!out.chatgpt_account_id) {
-        throw new Error(`Missing tokens.account_id in ${usage_config.codex_auth_file}.`);
+        throw new Error(`Missing tokens.account_id in ${USAGE_CONFIG.codex_auth_file}.`);
     }
     return out;
 }
@@ -143,9 +143,9 @@ function usage_request_json(hostname, path, headers)
                     json = body ? JSON.parse(body) : {};
                 }
                 catch {
-                    const error = new Error(`HTTP ${response.statusCode} returned invalid JSON.`);
-                    error.statusCode = response.statusCode;
-                    reject(error);
+                    const http_error = new Error(`HTTP ${response.statusCode} returned invalid JSON.`);
+                    http_error.statusCode = response.statusCode;
+                    reject(http_error);
                     return;
                 }
 
@@ -154,9 +154,9 @@ function usage_request_json(hostname, path, headers)
                         || json.detail
                         || json.message
                         || JSON.stringify(json);
-                    const error = new Error(`HTTP ${response.statusCode}: ${message}`);
-                    error.statusCode = response.statusCode;
-                    reject(error);
+                    const http_error = new Error(`HTTP ${response.statusCode}: ${message}`);
+                    http_error.statusCode = response.statusCode;
+                    reject(http_error);
                     return;
                 }
                 resolve(json);
@@ -182,8 +182,9 @@ function claude_usage_fetch(access_token)
 
 async function gpt_usage_fetch(access_token, account_id)
 {
-    const api_paths = ['/backend-api/wham/usage', '/backend-api/codex/usage'];
     let last_error;
+
+    const api_paths = ['/backend-api/wham/usage', '/backend-api/codex/usage'];
     for (const api_path of api_paths) {
         try {
             return await usage_request_json('chatgpt.com', api_path, {
@@ -216,8 +217,8 @@ function format_usage_bar(value)
 {
     const number = Number(value);
     const percent = Number.isFinite(number) ? Math.min(100, Math.max(0, number)) : 0;
-    const filled = Math.round(percent/100*usage_config.bar_width);
-    return `[${'█'.repeat(filled)}${'░'.repeat(usage_config.bar_width - filled)}]`;
+    const filled = Math.round(percent/100*USAGE_CONFIG.bar_width);
+    return `[${'█'.repeat(filled)}${'░'.repeat(USAGE_CONFIG.bar_width - filled)}]`;
 }
 
 function format_reset(value)
@@ -240,7 +241,7 @@ function format_reset(value)
         hour: 'numeric',
         minute: '2-digit',
         hour12: true,
-        timeZone: usage_config.display_time_zone,
+        timeZone: USAGE_CONFIG.display_time_zone,
         timeZoneName: 'short',
     });
     return date_format.format(new Date(milliseconds));
@@ -428,9 +429,10 @@ function usage_blocks_align(left_blocks, right_blocks)
         }
     }
 
-    const out = [];
     let i = 0;
     let j = 0;
+
+    const out = [];
     while ((i < left_blocks.length) || (j < right_blocks.length)) {
         const keys_match = (i < left_blocks.length)
             && (j < right_blocks.length)
@@ -473,14 +475,15 @@ function usage_error_blocks_from_reason(provider, agent, reason)
 
 function usage_columns_print(claude_blocks, gpt_blocks)
 {
-    const all_lines = [...claude_blocks.flat(), ...gpt_blocks.flat()];
     let width = 6;
+
+    const all_lines = [...claude_blocks.flat(), ...gpt_blocks.flat()];
     for (const line of all_lines) {
         width = Math.max(width, visible_length_of(line));
     }
 
-    console.log(`${format_string_padded('CLAUDE', width)}${usage_column_gap}GPT`);
-    console.log(`${'─'.repeat(width)}${usage_column_gap}${'─'.repeat(width)}`);
+    console.log(`${format_string_padded('CLAUDE', width)}${USAGE_COLUMN_GAP}GPT`);
+    console.log(`${'─'.repeat(width)}${USAGE_COLUMN_GAP}${'─'.repeat(width)}`);
 
     const aligned_blocks = usage_blocks_align(claude_blocks, gpt_blocks);
     for (let i = 0, ii = aligned_blocks.length; i < ii; ++i) {
@@ -491,10 +494,10 @@ function usage_columns_print(claude_blocks, gpt_blocks)
         for (let j = 0; j < height; ++j) {
             const left_line = left_block[j] || '';
             const right_line = right_block[j] || '';
-            console.log(`${format_string_padded(left_line, width)}${usage_column_gap}${right_line}`);
+            console.log(`${format_string_padded(left_line, width)}${USAGE_COLUMN_GAP}${right_line}`);
         }
         if (i < ii - 1) {
-            console.log(`${' '.repeat(width)}${usage_column_gap}`);
+            console.log(`${' '.repeat(width)}${USAGE_COLUMN_GAP}`);
         }
     }
 }

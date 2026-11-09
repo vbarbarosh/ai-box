@@ -24,10 +24,10 @@ jobs:
       # none of them, without a word.
       - name: every script starts in a way a step below reads
         run: |
-          unread=$(for f in $(git ls-files bin files/bin files/bin.host files/bin.ai files/docker-entrypoint); do
-            case "$(head -n 1 "$f")" in
+          unread=$(for script in $(git ls-files bin files/bin files/bin.host files/bin.ai files/docker-entrypoint); do
+            case "$(head -n 1 "$script")" in
               '#!/bin/bash'|'#!/usr/bin/env node'|'#!/usr/bin/env python3') ;;
-              *) echo "$f" ;;
+              *) echo "$script" ;;
             esac
           done)
           test -z "$unread" || { echo "no step reads: $unread"; exit 1; }
@@ -37,8 +37,8 @@ jobs:
       # unknown shebang outright.
       - name: bash -n
         run: |
-          for f in $(grep -l '^#!/bin/bash' bin/* files/docker-entrypoint files/bin/* files/bin.host/* files/bin.ai/*); do
-            bash -n "$f"
+          for script in $(grep -l '^#!/bin/bash' bin/* files/docker-entrypoint files/bin/* files/bin.host/* files/bin.ai/*); do
+            bash -n "$script"
           done
 
       - name: shellcheck
@@ -53,17 +53,17 @@ jobs:
       - name: the scripts written at run time
         run: |
           mkdir -p /tmp/written
-          for f in bin/run bin/self-check; do
-            awk -v out="/tmp/written/$(basename "$f")" '
+          for script in bin/run bin/self-check; do
+            awk -v out="/tmp/written/$(basename "$script")" '
               /<<.EOF.$/ { n++; file = sprintf("%s-%d.sh", out, n); printf "" > file; inside = 1; next }
               inside && /^EOF$/ { inside = 0; close(file); next }
               inside { print > file }
-            ' "$f"
+            ' "$script"
           done
           ls /tmp/written
           test "$(ls /tmp/written | wc -l)" -ge 10
-          for f in /tmp/written/*.sh; do
-            bash -n "$f"
+          for script in /tmp/written/*.sh; do
+            bash -n "$script"
           done
           shellcheck -s bash -S error /tmp/written/*.sh
 
