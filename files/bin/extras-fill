@@ -82,9 +82,11 @@ if ! test -d $root/npm/$npm_name; then
     NPM_CONFIG_PREFIX=$root/npm/.$npm_name.tmp npm install --global --no-audit --no-fund \
         "@anthropic-ai/claude-code@$claude_version" \
         "@openai/codex@$codex_version"
+    # Checked under the temporary name: a pair that does not start is never
+    # the folder the next fill finds and makes current.
+    $root/npm/.$npm_name.tmp/bin/claude --version
+    $root/npm/.$npm_name.tmp/bin/codex --version
     mv $root/npm/.$npm_name.tmp $root/npm/$npm_name
-    $root/npm/$npm_name/bin/claude --version
-    $root/npm/$npm_name/bin/codex --version
 fi
 set_current npm $npm_name
 wanted+=(npm/$npm_name)
