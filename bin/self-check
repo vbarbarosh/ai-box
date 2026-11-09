@@ -21,7 +21,7 @@ PURPLE="\e[35m" CYAN="\e[36m" WHITE="\e[37m" RESET="\e[0m"
 
 usage_print () {
     echo "usage: $scriptname              report what the host has and lacks"
-    echo "       $scriptname --deep       also start the box and run a container inside it"
+    echo "       $scriptname --deep       also start boxes: a container inside one, and the boundary"
     echo "       $scriptname --versions   also list what the image was built with"
     echo "Exits non-zero when a required item is missing."
 }
@@ -477,6 +477,123 @@ EOF
         kill "$readonly_writer" 2>/dev/null || true
         wait "$readonly_writer" 2>/dev/null || true
         rm -rf "$readonly_dir"
+
+        # The boundary, tried from inside a box as an agent would: what the
+        # docs promise to keep from it. A scratch repository with a secret at
+        # the top, one in a subfolder and one in a folder named in MASK, and
+        # a hook kept in the work tree.
+        boundary_dir=$(mktemp -d)
+        mkdir -p "$boundary_dir/repo/api" "$boundary_dir/repo/keys" "$boundary_dir/repo/.hooks" "$boundary_dir/plain"
+        echo secret > "$boundary_dir/repo/.env"
+        echo secret > "$boundary_dir/repo/api/.env"
+        echo secret > "$boundary_dir/repo/keys/key.pem"
+        echo template > "$boundary_dir/repo/.env.example"
+        echo one > "$boundary_dir/repo/a.txt"
+        printf '.env\nkeys\n' > "$boundary_dir/repo/.gitignore"
+        if command -v git >/dev/null 2>&1 && command -v socat >/dev/null 2>&1; then
+            git -C "$boundary_dir/repo" init -q -b main
+            git -C "$boundary_dir/repo" -c user.name=self-check -c user.email=self-check@example.invalid \
+                -c core.hooksPath=/dev/null add a.txt .env.example .gitignore
+            git -C "$boundary_dir/repo" -c user.name=self-check -c user.email=self-check@example.invalid \
+                -c core.hooksPath=/dev/null commit -q -m "self-check: first"
+            git -C "$boundary_dir/repo" config user.name self-check
+            git -C "$boundary_dir/repo" config user.email self-check@example.invalid
+            git -C "$boundary_dir/repo" config core.hooksPath .hooks
+            printf '#!/bin/sh\ntouch %q\n' "$boundary_dir/hook-ran" > "$boundary_dir/repo/.hooks/pre-commit"
+            chmod +x "$boundary_dir/repo/.hooks/pre-commit"
+            if boundary_line=$(cd "$boundary_dir/repo" && env -u FRESH -u READONLY -u AGENTDIR \
+                REPOS_PICK= SOCKETS= AGENTS= GIT=commit MASK=keys \
+                timeout 150 "$scriptdir/run" bash -seu 2>&1 <<'EOF'
+# Each step says its name first: the last line printed is the one that failed.
+echo "failed: .git is not read-only"
+if touch /app/.git/blocked 2>/dev/null; then
+    exit 1
+fi
+echo "failed: .env at the top is in sight"
+test ! -s /app/.env
+echo "failed: a nested .env is in sight"
+test ! -s /app/api/.env
+echo "failed: a folder named in MASK is in sight"
+test -z "$(ls -A /app/keys)"
+echo "failed: the template .env.example is hidden"
+test "$(cat /app/.env.example)" = template
+echo "failed: the relay did not commit a change"
+echo two >> /app/a.txt
+commit -m "self-check: a change from the box" a.txt >/dev/null
+echo "failed: the relay took a submodule entry"
+printf 'diff --git a/sub b/sub\nnew file mode 160000\nindex 0000000..1111111\n--- /dev/null\n+++ b/sub\n@@ -0,0 +1 @@\n+Subproject commit 1111111111111111111111111111111111111111\n' > /tmp/sub.diff
+if commit -m "self-check: a submodule" /tmp/sub.diff >/dev/null 2>&1; then
+    exit 1
+fi
+echo "failed: the relay took a patch on a masked file"
+printf 'diff --git a/.env b/.env\nnew file mode 100644\n--- /dev/null\n+++ b/.env\n@@ -0,0 +1 @@\n+changed\n' > /tmp/env.diff
+if commit -m "self-check: the masked file" /tmp/env.diff >/dev/null 2>&1; then
+    exit 1
+fi
+echo boundary-ok
+EOF
+            ) && test "$(echo "$boundary_line" | tr -d '\r' | tail -1)" = boundary-ok \
+                && test "$(git -C "$boundary_dir/repo" rev-list --count HEAD)" = 2 \
+                && test -z "$(git -C "$boundary_dir/repo" ls-files sub .env)"; then
+                if test -e "$boundary_dir/hook-ran"; then
+                    report_missing required "boundary of a repository" "the relay ran a hook kept in the work tree"
+                else
+                    report_ok "boundary of a repository" ".git read-only, secrets hidden, relay: no hook, no submodule"
+                fi
+            else
+                report_missing required "boundary of a repository" "$(echo "$boundary_line" | tr -d '\r' | tail -1)"
+            fi
+        else
+            report_missing optional "boundary of a repository" "needs git and socat on the host"
+        fi
+
+        # A folder that is no repository does not become one, and nothing
+        # of the stand-in for .git is left when the box has ended.
+        if boundary_line=$(cd "$boundary_dir/plain" && env -u FRESH -u READONLY -u AGENTDIR -u GIT -u MASK \
+            REPOS_PICK= SOCKETS= AGENTS= \
+            timeout 150 "$scriptdir/run" bash -seu 2>&1 <<'EOF'
+echo "failed: the box made .git in a folder that had none"
+if mkdir -p /app/.git/hooks 2>/dev/null; then
+    exit 1
+fi
+echo plain-ok
+EOF
+        ) && test "$(echo "$boundary_line" | tr -d '\r' | tail -1)" = plain-ok \
+            && ! test -e "$boundary_dir/plain/.git"; then
+            report_ok "no .git where none was" "the box cannot make one; nothing left"
+        else
+            report_missing required "no .git where none was" "$(echo "$boundary_line" | tr -d '\r' | tail -1 | sed 's/^plain-ok$/a .git folder was left behind/')"
+        fi
+
+        # The box ends with bin/run: SIGTERM to the one ends the other.
+        sleep_seconds=$((80000 + $$ % 6000))
+        ( cd "$boundary_dir/plain" && exec env -u FRESH -u READONLY -u AGENTDIR -u GIT -u MASK \
+            REPOS_PICK= SOCKETS= AGENTS= "$scriptdir/run" sleep "$sleep_seconds" </dev/null >/dev/null 2>&1 ) &
+        boundary_run=$!
+        is_box_seen=
+        for attempt in $(seq 60); do
+            if podman ps --no-trunc --format '{{.Command}}' 2>/dev/null | grep -q "sleep $sleep_seconds"; then
+                is_box_seen=1
+                break
+            fi
+            sleep 0.5
+        done
+        kill -TERM "$boundary_run" 2>/dev/null || true
+        wait "$boundary_run" 2>/dev/null || true
+        is_box_gone=
+        for attempt in $(seq 30); do
+            if ! podman ps --no-trunc --format '{{.Command}}' 2>/dev/null | grep -q "sleep $sleep_seconds"; then
+                is_box_gone=1
+                break
+            fi
+            sleep 0.5
+        done
+        if test -n "$is_box_seen" && test -n "$is_box_gone"; then
+            report_ok "the box ends with bin/run" "SIGTERM to bin/run stopped it"
+        else
+            report_missing required "the box ends with bin/run" "seen: ${is_box_seen:-no}, gone: ${is_box_gone:-no}"
+        fi
+        rm -rf "$boundary_dir"
     else
         report_missing optional "container inside box" "no image yet; bin/build"
     fi

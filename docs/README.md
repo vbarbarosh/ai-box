@@ -63,8 +63,9 @@ podman rm -af
 
 ```bash
 bin/configure      # install what the host is missing (idempotent)
-bin/self-check     # report what is here and what is not; --deep also runs a
-                   # container inside the box
+bin/self-check     # report what is here and what is not; --deep also starts
+                   # boxes: a container inside one, and the boundary tried
+                   # from inside (.git, the masks, the relay, the end)
 bin/build          # build the image (tag: ai-box) and fill data/extras
 bin/images         # list the shared image store; add: bin/images mysql:8.0
 
