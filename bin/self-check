@@ -92,7 +92,7 @@ echo
 echo "host tools"
 check_binary podman    podman    podman
 # bin/run's --userns=keep-id:uid=1000,gid=1000 needs 4.3; Ubuntu 22.04 has 3.4.4.
-podman_have=$(podman --version 2>/dev/null | awk '{print $3}')
+podman_have=$(podman --version 2>/dev/null | awk '{print $3}' || true)
 if test -n "$podman_have" && dpkg --compare-versions "$podman_have" lt 4.3 2>/dev/null; then
     report_missing required "podman 4.3" "$podman_have here; upgrade to Ubuntu 24.04"
 fi
@@ -211,6 +211,8 @@ if test "$driver" = overlay && test "$native" = true; then
         "if bin/build's warming step is slow, that is the layer copy; it" "$reset"
     printf '  %s%-9s%s %-26s %s%s%s\n' "$dim" "" "$reset" "" "$dim" \
         "runs after any non-cached build; fuse-overlayfs is not a fix" "$reset"
+elif test "$driver" = unknown; then
+    report_missing optional "graph driver" "podman did not say"
 else
     report_ok "graph driver" "$driver${native:+ (native diff: $native)}"
 fi
