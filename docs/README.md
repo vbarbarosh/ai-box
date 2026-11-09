@@ -118,6 +118,14 @@ and `bin/run` refuses to start when the workspace, `REPOS`, `SOCKETS`,
 would see `/tmp/ssh-*/agent.*` and could use every key in it). `pull` and
 `push` use the agent on the host.
 
+`codex` starts in two ways, and they differ. Typed in the box's shell it is
+an alias, `codex -a never -s danger-full-access` (the image's `~/.bashrc`):
+Codex asks no approval and its own sandbox is off. `bin/run codex` and
+`bin/run-fresh codex` run the program itself, with no shell and so no alias:
+there Codex keeps its own approvals and sandbox. For the same as in the
+shell, say it: `bin/run codex -a never -s danger-full-access`. `claude` has
+no alias; it starts the same both ways.
+
 ### A fresh environment
 
 `bin/run-fresh` is a shortcut for `FRESH=1 bin/run`. It keeps the installed
