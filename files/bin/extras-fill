@@ -27,8 +27,28 @@ EXIT_MESSAGE="${RED}extras-fill failed${RESET}"
 # previous one in place. An entry no longer current is kept for KEEP_DAYS
 # (default 3) after it was last current, for boxes started before the fill.
 
+case "${1:-}" in
+    "") ;;
+    -h|--help)
+        echo "usage: $scriptname                  fill /opt/extras"
+        echo "       REFRESH=1 $scriptname        ...and take a new Chrome, if there is one"
+        echo "       EXTRAS=/tmp/x $scriptname    fill another folder"
+        echo "       KEEP_DAYS=7 $scriptname      keep a version 7 days after it was last current (3)"
+        echo "bin/build runs it in the new image; it downloads the browsers, the speech"
+        echo "model, Chrome and both agent CLIs, several GB the first time."
+        exit 0 ;;
+    *)
+        echo "usage: $scriptname   (no arguments; -h says what it does)" >&2
+        exit 1 ;;
+esac
+
 root=${EXTRAS:-/opt/extras}
 keep_days=${KEEP_DAYS:-3}
+case "$keep_days" in
+    ''|*[!0-9]*)
+        echo "$scriptname: KEEP_DAYS=$keep_days; a number of days" >&2
+        exit 1 ;;
+esac
 
 export PLAYWRIGHT_BROWSERS_PATH=$root/ms-playwright
 export CYPRESS_CACHE_FOLDER=$root/cypress

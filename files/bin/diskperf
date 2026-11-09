@@ -8,6 +8,19 @@ script=`realpath $0`
 scriptdir=`dirname $script`
 scriptname=`basename $script`
 
+case "${1:-}" in
+    "") ;;
+    -h|--help)
+        echo "usage: $scriptname"
+        echo "Measures the disk under the current folder: writes a test file there,"
+        echo "400 MB of zeros and then 400 MB of random bytes, 10 seconds each at"
+        echo "most, prints the speed of each and removes the file."
+        exit 0 ;;
+    *)
+        echo "usage: $scriptname   (no arguments; -h says what it does)" >&2
+        exit 1 ;;
+esac
+
 # The test file sits in $PWD, so df and dd measure the same disk; its own name,
 # so no file of yours is overwritten.
 tmpfile=`mktemp -p $PWD .diskperf.XXXXXXXXXX`

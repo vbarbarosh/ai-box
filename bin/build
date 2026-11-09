@@ -34,6 +34,16 @@ fi
 
 cd $scriptdir/..
 
+# How long the fill keeps a version that is no longer current, for boxes
+# started before it: KEEP_DAYS=7 bin/build, 3 when not said. Checked here,
+# before the hour of building, and passed on to extras-fill below.
+keep_days=${KEEP_DAYS:-3}
+case "$keep_days" in
+    ''|*[!0-9]*)
+        echo "error: KEEP_DAYS=$keep_days; a number of days" >&2
+        exit 1 ;;
+esac
+
 # Everything a build prints -- podman build, the warming, extras-fill -- also
 # goes to data/logs/build-<local time>.log, so a failure can be read back
 # whole after the terminal is gone.
@@ -286,6 +296,7 @@ podman run --rm \
     --user 1000:1000 \
     -e HOME=/home/ubuntu \
     -e REFRESH=$is_new_week \
+    -e KEEP_DAYS=$keep_days \
     -e IMAGE_ID=$(podman image inspect --format '{{.Id}}' ai-box) \
     -v "$PWD/data/extras:/opt/extras" \
     --entrypoint /home/ubuntu/bin/extras-fill \

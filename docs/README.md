@@ -74,6 +74,8 @@ bin/build          # build the image (tag: ai-box), fill data/extras, check it
                    # with self-check --deep; a build that does not finish
                    # leaves the previous image as it was
 bin/images         # list the shared image store; add: bin/images mysql:8.0
+bin/images --remove mysql:8.0
+                   # ...and take one out again
 
 bin/run            # open the box on the current directory
 bin/run claude     # ...and go straight into an agent
@@ -117,6 +119,11 @@ and `bin/run` refuses to start when the workspace, `REPOS`, `SOCKETS`,
 `AGENTDIR` or `AGENTS` holds the agent's socket (a box started from `/tmp`
 would see `/tmp/ssh-*/agent.*` and could use every key in it). `pull` and
 `push` use the agent on the host.
+
+`REPOS`, `SOCKETS`, `AGENTDIR` and `AGENTS` are each refused, with the
+reason, when the path is not a folder, is `/`, or holds your home directory.
+`GIT=rw` and the old `AI_BOX_*` names are refused too, each with the name to
+use in its place.
 
 `codex` starts in two ways, and they differ. Typed in the box's shell it is
 an alias, `codex -a never -s danger-full-access` (the image's `~/.bashrc`):
@@ -405,7 +412,8 @@ data/extras/
   `google-chrome` and `transcribe` say "run bin/build" when their part is
   missing.
 - **Old versions** stay three days after they stop being current, for boxes
-  started before the fill (`KEEP_DAYS`), then the next fill removes them.
+  started before the fill, then the next fill removes them. `KEEP_DAYS=7
+  bin/build` keeps them seven.
 
 The design and its reasons: [notes/extras.md](../notes/extras.md).
 
