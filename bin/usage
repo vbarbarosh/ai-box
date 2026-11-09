@@ -298,15 +298,22 @@ function usage_meter_block_from_values(label, percent, reset_at)
     ];
 }
 
+// The older answer: a limit under each key, null where the account has none.
+// A model's weekly limit is seven_day_<model>, whichever models the service
+// names: Opus and Sonnet once, Fable now.
 function legacy_claude_limits_from_usage(usage)
 {
     const out = [];
     const pairs = [
         ['Current session', usage.five_hour],
         ['All models', usage.seven_day],
-        ['Opus', usage.seven_day_opus],
-        ['Sonnet', usage.seven_day_sonnet],
     ];
+    for (const key of Object.keys(usage)) {
+        const model = key.match(/^seven_day_(.+)$/)?.[1];
+        if (model && (usage[key]?.utilization !== undefined)) {
+            pairs.push([format_title_case(model), usage[key]]);
+        }
+    }
     for (const pair of pairs) {
         const label = pair[0];
         const limit = pair[1];
