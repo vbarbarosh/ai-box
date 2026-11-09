@@ -25,6 +25,13 @@ fi
 BLACK="\e[30m" RED="\e[31m" GREEN="\e[32m" YELLOW="\e[33m" BLUE="\e[34m"
 PURPLE="\e[35m" CYAN="\e[36m" WHITE="\e[37m" RESET="\e[0m"
 
+# The image is built and kept in your own store, where bin/run looks for it;
+# root would build it into another one, and leave data/ owned by root.
+if test "$(id -u)" -eq 0; then
+    echo "error: run it as the user who runs the box, not as root." >&2
+    exit 1
+fi
+
 cd $scriptdir/..
 
 # Everything a build prints -- podman build, the warming, extras-fill -- also

@@ -33,6 +33,13 @@ case "${1:-}" in
     -h|--help) usage_print; exit 0 ;;
 esac
 
+# The box is safe because podman runs it as you, with no more rights than
+# you have. As root the same command line is a privileged container.
+if test "$(id -u)" -eq 0; then
+    echo "error: run it as yourself, not as root: the box is rootless" >&2
+    exit 1
+fi
+
 # A fresh box keeps only the programs in data/extras. Mounting the workspace
 # is a separate choice; the host's default repos and sockets never follow it.
 fresh=${FRESH:-}
@@ -75,6 +82,11 @@ if test "$fresh" != 1; then
         echo "error: refusing to mount / as the workspace" >&2
         exit 1
     fi
+    case "$workspace" in
+        *:*)
+            echo "error: the workspace has a colon in its path, which a mount cannot name: $workspace" >&2
+            exit 1 ;;
+    esac
     case "$home/" in
         "$workspace"/*)
             echo "error: $workspace contains your home directory ($home);" >&2
