@@ -233,6 +233,8 @@ mv $root/.wanted.tmp $root/.wanted
 
 cutoff=$(( now - keep_days * 86400 ))
 awk -v cutoff=$cutoff '$1 < cutoff { print $2 }' $root/.wanted | while read -r path; do
+    # A line with a stamp and no path would name the folder itself.
+    test -n "$path" || continue
     test -e $root/$path || continue
     echo "$scriptname: removing $path, not current for $keep_days days"
     rm -rf "${root:?}/$path"
