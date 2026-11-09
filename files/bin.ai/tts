@@ -110,7 +110,7 @@ function parse_args(argv)
 function cli(main)
 {
     const timer = setInterval(v => v, 1E9);
-    Promise.try(main).then(resolve, reject);
+    Promise.resolve().then(main).then(resolve, reject);
 
     function resolve() {
         clearInterval(timer);

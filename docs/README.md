@@ -18,7 +18,7 @@ No Docker, no root daemon, no `/dev/kvm`. The environment runs under **rootless
 Podman**, so the host needs Podman and the pieces rootless mode depends on:
 
 ```bash
-sudo apt install -y podman uidmap passt slirp4netns crun catatonit socat
+sudo apt install -y podman uidmap passt slirp4netns crun catatonit socat git
 ```
 
 Podman has to be **4.3 or newer**: `bin/run` starts the box with
@@ -308,7 +308,7 @@ is plain git. The relays end with the box; after a bare `kill -9` of
 What it needs:
 
 - a branch checked out on the host; `bin/run` stops on a detached HEAD;
-- `socat` on the host (`bin/configure` installs it);
+- `socat` and `git` on the host (`bin/configure` installs them);
 - `.git` as a folder of the workspace, not the file of a linked worktree or
   a submodule checkout, and a remote named `origin`;
 - a push and a fetch that work from your terminal with no passphrase typed:

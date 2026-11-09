@@ -371,6 +371,10 @@ if test -n "$is_git_relayed"; then
         echo "       run git init there first: the box cannot make one" >&2
         exit 1
     fi
+    if ! command -v git >/dev/null 2>&1; then
+        echo "error: GIT=commit needs git on the host (bin/configure)" >&2
+        exit 1
+    fi
     branch=$(git -C "$workspace" symbolic-ref --quiet --short HEAD || true)
     if ! test -d "$workspace/.git"; then
         echo "error: GIT=commit, but $workspace/.git is not a directory" >&2

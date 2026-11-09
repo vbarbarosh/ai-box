@@ -22,6 +22,7 @@ const USAGE_CONFIG = {
     codex_auth_file: path.join(DATA_DIR, 'codex', 'auth.json'),
     display_time_zone: 'Europe/Chisinau',
     bar_width: 30,
+    error_width: 46,
 };
 const USAGE_COLUMN_GAP = '   │   ';
 const USAGE = [
@@ -39,17 +40,13 @@ async function main()
         return;
     }
 
-    console.log('🔐 Loading credentials...');
-    const credentials = usage_credentials_load();
-    console.log('✅ Credentials loaded.\n');
-
+    // Each agent's login is read inside its own fetch: signed in to one
+    // agent only, that column shows, and the other says what is missing.
     const usage_results = await Promise.allSettled([
-        usage_fetch_with_logs('Claude', '🟠', () => claude_usage_fetch(credentials.claude_access_token)),
+        usage_fetch_with_logs('Claude', '🟠', () => claude_usage_fetch(claude_credentials_load().access_token)),
         usage_fetch_with_logs('GPT', '🟢', function () {
-            return gpt_usage_fetch(
-                credentials.chatgpt_access_token,
-                credentials.chatgpt_account_id,
-            );
+            const credentials = gpt_credentials_load();
+            return gpt_usage_fetch(credentials.access_token, credentials.account_id);
         }),
     ]);
     const claude_result = usage_results[0];
@@ -90,40 +87,46 @@ function usage_json_file_load(filename, agent)
     }
     catch (error) {
         if (error.code === 'ENOENT') {
-            const hint = `Open it with \`bin/run ${agent}\` and log in.`;
-            throw new Error(`${filename} does not exist: the box has no ${agent} login yet. ${hint}`);
+            const login_error = new Error(`No ${agent} login yet.`);
+            login_error.hints = [`${format_data_path(filename)} is missing;`, `\`bin/run ${agent}\` and log in.`];
+            throw login_error;
         }
-        throw new Error(`Could not read ${filename}: ${error.message}`);
+        throw new Error(`Could not read ${format_data_path(filename)}: ${error.message}`);
     }
 
     try {
         return JSON.parse(contents);
     }
     catch (error) {
-        throw new Error(`Could not parse ${filename}: ${error.message}`);
+        throw new Error(`Could not parse ${format_data_path(filename)}: ${error.message}`);
     }
 }
 
-function usage_credentials_load()
+// A file of data/ as the author knows it: from the checkout, not from the root.
+function format_data_path(filename)
+{
+    return path.relative(path.dirname(DATA_DIR), filename);
+}
+
+function claude_credentials_load()
 {
     const claude_credentials = usage_json_file_load(USAGE_CONFIG.claude_credentials_file, 'claude');
-    const codex_auth = usage_json_file_load(USAGE_CONFIG.codex_auth_file, 'codex');
-    const out = {
-        claude_access_token: claude_credentials.claudeAiOauth?.accessToken,
-        chatgpt_access_token: codex_auth.tokens?.access_token,
-        chatgpt_account_id: codex_auth.tokens?.account_id,
-    };
+    const out = {access_token: claude_credentials.claudeAiOauth?.accessToken};
+    if (!out.access_token) {
+        throw new Error(`Missing claudeAiOauth.accessToken in ${format_data_path(USAGE_CONFIG.claude_credentials_file)}.`);
+    }
+    return out;
+}
 
-    if (!out.claude_access_token) {
-        throw new Error(
-            `Missing claudeAiOauth.accessToken in ${USAGE_CONFIG.claude_credentials_file}.`,
-        );
+function gpt_credentials_load()
+{
+    const codex_auth = usage_json_file_load(USAGE_CONFIG.codex_auth_file, 'codex');
+    const out = {access_token: codex_auth.tokens?.access_token, account_id: codex_auth.tokens?.account_id};
+    if (!out.access_token) {
+        throw new Error(`Missing tokens.access_token in ${format_data_path(USAGE_CONFIG.codex_auth_file)}.`);
     }
-    if (!out.chatgpt_access_token) {
-        throw new Error(`Missing tokens.access_token in ${USAGE_CONFIG.codex_auth_file}.`);
-    }
-    if (!out.chatgpt_account_id) {
-        throw new Error(`Missing tokens.account_id in ${USAGE_CONFIG.codex_auth_file}.`);
+    if (!out.account_id) {
+        throw new Error(`Missing tokens.account_id in ${format_data_path(USAGE_CONFIG.codex_auth_file)}.`);
     }
     return out;
 }
@@ -414,6 +417,16 @@ function key_from_usage_block(block)
 
 function usage_blocks_align(left_blocks, right_blocks)
 {
+    // An error is its whole column: it stands at the top, beside the other
+    // column's first block, not under its last one.
+    if ((left_blocks[0]?.[0] === 'Error') || (right_blocks[0]?.[0] === 'Error')) {
+        const out = [];
+        for (let i = 0, end = Math.max(left_blocks.length, right_blocks.length); i < end; ++i) {
+            out.push([left_blocks[i] || [], right_blocks[i] || []]);
+        }
+        return out;
+    }
+
     const scores = [];
     for (let i = 0, end = left_blocks.length + 1; i < end; ++i) {
         scores.push(Array(right_blocks.length + 1).fill(0));
@@ -463,9 +476,30 @@ function visible_length_of(value)
     return [...value_without_ansi].length;
 }
 
+// A message as lines no wider than width: broken between words, and inside
+// a word longer than a line. A message may hold line breaks of its own, as
+// JSON.parse's does; they are spaces here.
+function lines_from_text_wrapped(text, width)
+{
+    const out = [];
+    const words = String(text).split(/\s+/).filter(Boolean);
+    const pieces = words.flatMap(v => v.match(new RegExp(`.{1,${width}}`, 'gu')));
+    for (const piece of pieces) {
+        const last = out[out.length - 1];
+        if ((out.length > 0) && ([...last].length + 1 + [...piece].length <= width)) {
+            out[out.length - 1] = `${last} ${piece}`;
+        }
+        else {
+            out.push(piece);
+        }
+    }
+    return out;
+}
+
 function usage_error_blocks_from_reason(provider, agent, reason)
 {
-    const out = [['Error', reason.message]];
+    const message_lines = lines_from_text_wrapped(reason.message, USAGE_CONFIG.error_width);
+    const out = [['Error', ...message_lines, ...(reason.hints || [])]];
     if (reason.statusCode === 401) {
         out[0].push(`${provider} access token is invalid or expired;`);
         out[0].push(`\`bin/run ${agent}\` refreshes it.`);
@@ -512,7 +546,8 @@ function usage_columns_print(claude_blocks, gpt_blocks)
 function cli(main)
 {
     const timer = setInterval(v => v, 1E9);
-    Promise.try(main).then(resolve, reject);
+    // Not Promise.try: Node has it from 23 on, and Ubuntu 24.04's own is 18.
+    Promise.resolve().then(main).then(resolve, reject);
 
     function resolve() {
         clearInterval(timer);

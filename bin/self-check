@@ -115,6 +115,20 @@ else
     missing_report optional "socat" "bin/configure  (apt: socat)"
 fi
 
+# What those relays run on the host; without it bin/run refuses GIT=commit.
+if command -v git >/dev/null 2>&1; then
+    ok_report "git" "$(git --version 2>/dev/null | head -1 | cut -c1-40)"
+else
+    missing_report optional "git" "bin/configure  (apt: git)"
+fi
+
+# bin/usage is the one host command written in node; nothing else needs it.
+if command -v node >/dev/null 2>&1; then
+    ok_report "node" "$(node --version 2>/dev/null | head -1 | cut -c1-20): bin/usage"
+else
+    missing_report optional "node" "apt: nodejs  (only bin/usage needs it)"
+fi
+
 if command -v pasta >/dev/null 2>&1; then
     ok_report "pasta" "$(pasta --version 2>/dev/null | head -1 | cut -c1-40)"
 elif command -v slirp4netns >/dev/null 2>&1; then
