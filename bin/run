@@ -20,7 +20,7 @@ usage_print () {
     echo "  REPOS_PICK='a b'       only those repositories of it at /repos"
     echo "  SOCKETS=<dir>          that folder at /sockets, not ~/sockets; empty for none"
     echo "  READONLY='/app/x ...'  those folders under /app or /agentdir read only"
-    echo "  MASK='a.pem b.json'    more files of the workspace hidden, as .env is"
+    echo "  MASK='a.pem keys'      more files and folders of the workspace hidden, as .env is"
     echo "  GIT=commit             commit, tag, push and pull your branch through the host"
     echo "  PIDS, MEMORY, CPUS     the box's limits"
     echo "  CLAUDE_CODE_OAUTH_TOKEN, CODEX_API_KEY   the agent's own sign-in"
@@ -222,17 +222,66 @@ fi
 # replaced with /dev/null -- the same set .gitignore keeps out of git. The
 # committed templates (.env.example and friends) hold no secrets and stay
 # visible, or git inside the box would report them as emptied.
-# MASK adds more names, space-separated, relative to the workspace:
-#   MASK="credentials.json service-account.pem" bin/run
+# MASK adds more names, space-separated, relative to the workspace, files and
+# folders, patterns too:
+#   MASK="credentials.json service-account.pem keys" bin/run
+# A name it cannot hide is said, never skipped in silence: the box would start
+# with the file in plain sight. Not an error: one MASK may serve many projects.
+
+# mask_mount <path in the box> <path on the host>: a file reads as /dev/null,
+# a folder as an empty read-only one.
+mask_mount () {
+    if test -d "$2"; then
+        opts+=(--tmpfs "$1:ro,nosuid,nodev,noexec,mode=0555,notmpcopyup")
+    else
+        opts+=(-v "/dev/null:$1:ro")
+    fi
+}
+
 masked_paths=()
 if test -n "$workspace"; then
     shopt -s nullglob dotglob
-    for f in "$workspace"/.env "$workspace"/.env.* ${MASK:-}; do
+    for f in "$workspace"/.env "$workspace"/.env.*; do
         f="${f#"$workspace"/}"
         case "$f" in *.example|*.sample|*.template|*.dist) continue ;; esac
         test -f "$workspace/$f" || continue
-        opts+=(-v "/dev/null:/app/$f:ro")
+        mask_mount "/app/$f" "$workspace/$f"
         masked_paths+=("$f")
+    done
+    mask_words=()
+    read -r -d '' -a mask_words <<<"${MASK:-}" || true
+    for mask_word in "${mask_words[@]}"; do
+        # Unquoted on purpose: a pattern becomes the names it matches, and
+        # nothing when it matches none.
+        mask_matches=($mask_word)
+        if test "${#mask_matches[@]}" = 0; then
+            echo "ai-box: MASK: nothing matches $mask_word in the workspace, skipped" >&2
+        fi
+        for mask_match in "${mask_matches[@]}"; do
+            f=$(realpath -m -s --relative-to="$workspace" -- "$mask_match")
+            case "$f" in
+                .|..|../*)
+                    echo "ai-box: MASK: $mask_match is not inside the workspace, skipped" >&2
+                    continue ;;
+                .git|.git/*)
+                    echo "ai-box: MASK: $f is the repository itself, skipped" >&2
+                    continue ;;
+            esac
+            if ! test -f "$workspace/$f" && ! test -d "$workspace/$f"; then
+                echo "ai-box: MASK: no $f in the workspace, skipped" >&2
+                continue
+            fi
+            is_masked=
+            for masked_path in "${masked_paths[@]}"; do
+                if test "$masked_path" = "$f"; then
+                    is_masked=1
+                fi
+            done
+            if test -z "$is_masked"; then
+                mask_mount "/app/$f" "$workspace/$f"
+                masked_paths+=("$f")
+            fi
+        done
     done
     shopt -u nullglob dotglob
 fi
@@ -346,7 +395,7 @@ commit () {
     fi
     while IFS= read -r -d '' path; do
         for masked_path in "${masked_paths[@]}"; do
-            if test "$path" = "$masked_path"; then
+            if test "$path" = "$masked_path" || test "${path#"$masked_path"/}" != "$path"; then
                 echo "commit: $path is hidden from the box; commit it yourself"
                 rm -rf "$tempdir"
                 return 1
@@ -574,7 +623,7 @@ if test -n "$workspace_in_repos"; then
     for dir in "${repo_dirs[@]}"; do
         if test "$dir" = "$repos/${workspace_in_repos%%/*}"; then
             for f in "${masked_paths[@]}"; do
-                opts+=(-v "/dev/null:/repos/$workspace_in_repos/$f:ro")
+                mask_mount "/repos/$workspace_in_repos/$f" "$workspace/$f"
             done
         fi
     done

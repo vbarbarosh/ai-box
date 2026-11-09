@@ -173,7 +173,7 @@ See [the official Codex login reference](https://learn.chatgpt.com/docs/develope
 |---|---|---|
 | `$PWD` → `/app` | rw | the project; the only writable host path |
 | `$PWD/.git` | **ro** | mounted over the writable workspace, when present; always |
-| `$PWD/.env`, `$PWD/.env.*` | hidden | each replaced with `/dev/null`, so secrets never enter the box. `MASK="a.pem b.json"` hides more |
+| `$PWD/.env`, `$PWD/.env.*` | hidden | each replaced with `/dev/null`, so secrets never enter the box. `MASK="a.pem keys"` hides more, files and folders, patterns too: a folder reads as empty. A name it cannot hide (not there, outside the workspace) gets a line on stderr and the box starts without it |
 | `~/repos` → `/repos` | ro | or `$REPOS` when set; set but empty, no `/repos`. `REPOS_PICK="a b"` mounts only those repositories of it, each at `/repos/<name>`, a missing or symlinked one skipped with a line on stderr; set but empty, no `/repos`. The `.env` and `.env.*` at the top of each repository in it are hidden as the workspace's are; a workspace inside it is hidden there as at `/app`, `MASK` included |
 | `~/sockets` → `/sockets` | ro | or `$SOCKETS` when set; set but empty, no `/sockets`. The host's sockets for the box to talk to: read-only still connects, and the folder is mounted rather than each socket, so a service that starts again with a new socket is still reached |
 | `$AGENTDIR` → `/agentdir` | rw | a Visual Notes note, when `AGENTDIR` is set |
