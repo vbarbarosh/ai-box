@@ -23,7 +23,7 @@ usage_print () {
     echo "  MASK='a.pem keys'      more files and folders of the workspace hidden, as .env is"
     echo "  GIT=commit             commit, tag, push and pull your branch through the host"
     echo "  PIDS, MEMORY, CPUS     the box's limits"
-    echo "  CLAUDE_CODE_OAUTH_TOKEN, CODEX_API_KEY   the agent's own sign-in"
+    echo "  CLAUDE_CODE_OAUTH_TOKEN, CODEX_API_KEY, OPENAI_API_KEY   the agent's own sign-in"
     echo "More in $(dirname "$scriptdir")/docs/README.md."
 }
 
@@ -621,7 +621,7 @@ fi
 # REPOS_PICK picks repositories of that folder, each at /repos/<name>, for an
 # agent that reads only those; a name with no folder there is skipped. Set but
 # empty, no /repos, and REPOS is not looked at.
-#   REPOS_PICK='rules banner-editor' bin/run claude
+#   REPOS_PICK='rules infra' bin/run claude
 repos=
 repos_pick=()
 if test -n "${REPOS_PICK+set}"; then
@@ -756,9 +756,9 @@ if test -n "$sockets"; then
     opts+=(-v "$sockets:/sockets:ro")
 fi
 
-# The agent's folder, a Visual Notes note, read-write, so the agent answers in
+# The agent's folder of Visual Agency, read-write, so the agent answers in
 # it: AGENTDIR names it and the box sees it as /agentdir.
-#   AGENTDIR=~/w/kb/app-visual-notes/data/notes/<id> bin/run claude
+#   AGENTDIR=~/agents/<id> bin/run claude
 # Set but wrong is an error, not a box without the note. The same guard as the
 # workspace: it is writable, so never /, $HOME or anything containing it.
 agentdir=${AGENTDIR:-}
@@ -781,11 +781,11 @@ if test -n "$agentdir"; then
     opts+=(-v "$agentdir:/agentdir")
 fi
 
-# Every agent's folder, the app's notes folder read-only at /agents, so one
+# Every agent's folder, the app's folder of agents read-only at /agents, so one
 # agent reads the others' conversations, plans and documents and changes none
-# of them. Its own note is one folder of it: still read-write at /agentdir, and
+# of them. Its own is one folder of it: still read-write at /agentdir, and
 # read-only at /agents/<id>. Unset or empty, no /agents.
-#   AGENTS=~/w/kb/app-visual-notes/data/notes bin/run claude
+#   AGENTS=~/agents bin/run claude
 # Set but wrong is an error, as with SOCKETS; never /, $HOME or anything
 # containing it, nor the folder of your ssh-agent's socket.
 agents=${AGENTS:-}
@@ -977,9 +977,10 @@ fi
 #       runtime. Narrower than --cap-add=NET_RAW, which would hand every
 #       process in the box raw packet access for the sake of one command.
 #
-# No --privileged and no docker socket: the box is rootless and unprivileged,
-# and nothing it runs can reach the host -- save the GIT=commit relays, each
-# running one fixed script there.
+# No --privileged and no docker socket: the box is rootless and unprivileged.
+# What it reaches of the host is what is mounted above, the network (the
+# host's own services beyond 127.0.0.1 among it), and with GIT=commit the
+# relays, each running one fixed script there with no hook.
 
 box=(podman run --rm -i "${tty[@]}" \
     --cidfile "$rundir/cid" \
@@ -1002,14 +1003,14 @@ box=(podman run --rm -i "${tty[@]}" \
 # the next after its terminal is gone. A log that cannot be written is a
 # warning: it must not keep you from your agents.
 run_log=$data/logs/run.log
-run_line="[$(TZ=Europe/Chisinau date '+%F %T %Z')]$(printf ' %q' "${box[@]}")"
+run_line="[$(date '+%F %T %Z')]$(printf ' %q' "${box[@]}")"
 if ! { mkdir -p "$data/logs" && echo "$run_line" >> "$run_log"; } 2>/dev/null; then
     echo "warning: could not write $run_log" >&2
 fi
 
 # The box ends with bin/run. `podman run` is only a client: the container
 # runs under conmon, and when podman run is killed the container runs on.
-# That is how an agent outlived the shell Visual Notes had ended (SIGHUP to
+# That is how an agent outlived the shell Visual Agency had ended (SIGHUP to
 # the shell, SIGTERM to the rest, SIGKILL 3 s later) and went on writing to
 # its note beside the next agent. So podman runs in the background here, and
 # SIGHUP, SIGTERM or SIGINT to bin/run stops the container: SIGTERM to its

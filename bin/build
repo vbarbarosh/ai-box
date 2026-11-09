@@ -35,12 +35,12 @@ fi
 cd $scriptdir/..
 
 # Everything a build prints -- podman build, the warming, extras-fill -- also
-# goes to data/logs/build-<Chisinau time>.log, so a failure can be read back
+# goes to data/logs/build-<local time>.log, so a failure can be read back
 # whole after the terminal is gone.
 mkdir -p data/logs
-log=$PWD/data/logs/build-`TZ=Europe/Chisinau date +%Y%m%d_%H%M%S`.log
+log=$PWD/data/logs/build-`date +%Y%m%d_%H%M%S`.log
 exec > >(tee -a $log) 2>&1
-echo "$scriptname: started `TZ=Europe/Chisinau date '+%F %T %Z'`; whole output in $log"
+echo "$scriptname: started `date '+%F %T %Z'`; whole output in $log"
 
 EXIT_MESSAGE="${RED}bin/build failed; whole output in $log${RESET}"
 
@@ -107,7 +107,7 @@ echo "$ubuntu_refresh" > "$stamp"
 # two by copying: containers/storage lays a layer over the image and chowns
 # every path through the mount, which copies up every file under it. So the
 # bill is the WHOLE image -- not the layers that changed -- every time the
-# image id changes, which on this one is ~8.5 GB and about two minutes, and
+# image id changes, which on this one is ~2.6 GB and about a minute, and
 # looks exactly like a hang.
 #
 # Rootless there is no fast path. The overlay driver's idmapped-mount probe
@@ -126,7 +126,7 @@ graphroot=$(podman info --format '{{.Store.GraphRoot}}' 2>/dev/null || echo "")
 
 # Free space on the store's filesystem, in bytes. Every file the copy touches
 # changes owner, so little of it can be hardlinked and the fall in free space
-# tracks the copy closely -- 8.5 GB for this image, measured. It is a liveness
+# tracks the copy closely -- 2.6 GB for this image, measured. It is a liveness
 # signal, not a measure of how much is left, so what is reported below is
 # written, not copied.
 free_bytes_of_store () {

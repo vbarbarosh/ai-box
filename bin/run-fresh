@@ -8,6 +8,15 @@ script=`realpath $0`
 scriptdir=`dirname $script`
 scriptname=`basename $script`
 
+# Its own two lines of usage, then bin/run's: the rest is the same command.
+case "${1:-}" in
+    -h|--help)
+        echo "usage: $scriptname [command [arg...]]"
+        echo "bin/run with FRESH=1: the programs only, no workspace, saved settings or login."
+        echo
+        exec "$scriptdir/run" --help ;;
+esac
+
 # Keep signal handling, resource limits and image checks in the one launcher.
 export FRESH=${FRESH:-1}
 exec "$scriptdir/run" "$@"
