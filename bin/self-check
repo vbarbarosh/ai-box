@@ -38,7 +38,21 @@ for arg in "$@"; do
 done
 
 EXIT_MESSAGE="${RED}bin/self-check failed${RESET}"
-trap 'echo -e "$EXIT_MESSAGE"' EXIT
+
+# The deep check's scratch folder and its background writer go with the
+# script, however it ends.
+deep_dir=
+readonly_writer=
+exit_report () {
+    if test -n "$readonly_writer"; then
+        kill "$readonly_writer" 2>/dev/null || true
+    fi
+    if test -n "$deep_dir"; then
+        rm -rf "${deep_dir:?}"
+    fi
+    echo -e "$EXIT_MESSAGE"
+}
+trap exit_report EXIT
 
 if test -t 1; then
     green=$'\e[32m'; red=$'\e[31m'; yellow=$'\e[33m'; dim=$'\e[2m'; reset=$'\e[0m'
@@ -320,6 +334,34 @@ elif test -d "$AGENTS"; then
 else
     missing_report required 'AGENTS'      "not a directory: $AGENTS"
 fi
+if test -z "${AGENTDIR:-}"; then
+    ok_report 'AGENTDIR'    "not set: no /agentdir"
+elif test -d "$AGENTDIR"; then
+    ok_report 'AGENTDIR'    "$AGENTDIR as /agentdir, read-write"
+else
+    missing_report required 'AGENTDIR'    "not a directory: $AGENTDIR"
+fi
+case "${GIT:-}" in
+    "")     ok_report 'GIT'         "not set: .git read-only, no commit from the box" ;;
+    commit) ok_report 'GIT'         "commit: commit, tag, push, pull through the host" ;;
+    *)      missing_report required 'GIT'         "GIT=$GIT; use commit, or unset it" ;;
+esac
+if test -n "${MASK:-}"; then
+    ok_report 'MASK'        "hidden beside .env: $MASK"
+else
+    ok_report 'MASK'        "not set: .env and .env.* hidden, nothing more"
+fi
+if test -n "${READONLY:-}"; then
+    ok_report 'READONLY'    "read-only in the box: $READONLY"
+else
+    ok_report 'READONLY'    "not set"
+fi
+case "${FRESH:-}" in
+    "")  ok_report 'FRESH'       "not set: the saved sign-ins and settings" ;;
+    1)   ok_report 'FRESH'       "1: no workspace, no saved sign-in or settings" ;;
+    app) ok_report 'FRESH'       "app: the current folder at /app, no saved sign-in or settings" ;;
+    *)   missing_report required 'FRESH'       "FRESH=$FRESH; use 1 or app" ;;
+esac
 
 echo
 echo "sign-ins bin/run will pass ${dim}(by name, never written to $short)${reset}"
@@ -350,9 +392,14 @@ if test -n "$deep"; then
     echo
     echo "deep check"
     if podman image exists ai-box 2>/dev/null; then
+        deep_dir=$(mktemp -d)
+        mkdir -p "$deep_dir/nested"
+        # In a scratch folder and without the caller's settings, as every
+        # check below: the answer must not depend on where this was run.
         # stdin is redirected, so bin/run asks for no tty and the output has
         # no \r\n; the tr stays for a bin/run invoked some other way.
-        if nested_line=$("$scriptdir/run" docker run --rm alpine echo nested-ok 2>&1 </dev/null | tr -d '\r' | tail -1) \
+        if nested_line=$(cd "$deep_dir/nested" && env -u GIT -u FRESH -u MASK -u READONLY -u AGENTDIR \
+            REPOS_PICK= SOCKETS= AGENTS= "$scriptdir/run" docker run --rm alpine echo nested-ok 2>&1 </dev/null | tr -d '\r' | tail -1) \
             && test "$nested_line" = nested-ok; then
             ok_report "container inside box" "docker run works"
         else
@@ -429,7 +476,7 @@ EOF
 
         # The host publishes into a protected folder after the box is ready;
         # the same box must see it while still refusing writes of its own.
-        readonly_dir=$(mktemp -d)
+        readonly_dir=$deep_dir/readonly
         mkdir -p "$readonly_dir/note/messages" "$readonly_dir/note/markers" "$readonly_dir/workspace/reference"
         ln -s "$readonly_dir/note" "$readonly_dir/workspace/link"
         readonly_paths_ok=1
@@ -490,13 +537,13 @@ EOF
         fi
         kill "$readonly_writer" 2>/dev/null || true
         wait "$readonly_writer" 2>/dev/null || true
-        rm -rf "$readonly_dir"
+        readonly_writer=
 
         # The boundary, tried from inside a box as an agent would: what the
         # docs promise to keep from it. A scratch repository with a secret at
         # the top, one in a subfolder and one in a folder named in MASK, and
         # a hook kept in the work tree.
-        boundary_dir=$(mktemp -d)
+        boundary_dir=$deep_dir/boundary
         mkdir -p "$boundary_dir/repo/api" "$boundary_dir/repo/keys" "$boundary_dir/repo/.hooks" "$boundary_dir/plain"
         echo secret > "$boundary_dir/repo/.env"
         echo secret > "$boundary_dir/repo/api/.env"
@@ -607,7 +654,6 @@ EOF
         else
             missing_report required "the box ends with bin/run" "seen: ${is_box_seen:-no}, gone: ${is_box_gone:-no}"
         fi
-        rm -rf "$boundary_dir"
     else
         missing_report optional "container inside box" "no image yet; bin/build"
     fi
