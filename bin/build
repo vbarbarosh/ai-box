@@ -36,7 +36,30 @@ exec > >(tee -a $log) 2>&1
 echo "$scriptname: started `TZ=Europe/Chisinau date '+%F %T %Z'`; whole output in $log"
 
 EXIT_MESSAGE="${RED}bin/build failed; whole output in $log${RESET}"
-trap 'echo -e "$EXIT_MESSAGE"' EXIT
+
+# The new image is ai-box from the moment podman build ends, and stays it only
+# when the warming, the fill and the self-check have all passed. Every other
+# way out of this script -- a failure, Ctrl-C in the warming -- puts the
+# previous image back, so a build that did not finish ships nothing. The new
+# image keeps its layers in the cache: the next build takes them from there.
+image_old=
+is_image_pending=
+restore_old_image () {
+    if test -n "$image_old"; then
+        podman tag "$image_old" ai-box
+        echo "ai-box is the previous image again: the new one shipped nothing" >&2
+    else
+        podman untag ai-box
+        echo "no ai-box image: the first one shipped nothing; its layers stay cached" >&2
+    fi
+}
+exit_report () {
+    if test -n "$is_image_pending"; then
+        restore_old_image || true
+    fi
+    echo -e "$EXIT_MESSAGE"
+}
+trap exit_report EXIT
 
 # Every binary the Dockerfile fetches outside apt -- Node, yt-dlp,
 # oxipng, ImageMagick, Chrome -- is the x86_64 build. On another architecture
@@ -59,8 +82,7 @@ if [ "$(cat "$stamp" 2>/dev/null)" != "$ubuntu_refresh" ]; then
     pull_flag=--pull
 fi
 
-# The image bin/run starts now. A build whose fill or self-check fails puts it
-# back, so a failed build ships nothing.
+# The image bin/run starts now: the one a build that does not finish puts back.
 image_old=$(podman image inspect --format '{{.Id}}' ai-box 2>/dev/null || echo "")
 
 # An empty $pull_flag must expand to no argument at all, so it stays unquoted.
@@ -68,6 +90,7 @@ podman build $pull_flag \
     --build-arg "UBUNTU_REFRESH=${ubuntu_refresh}" \
     . \
     -t ai-box
+is_image_pending=1
 
 mkdir -p "$(dirname $stamp)"
 echo "$ubuntu_refresh" > "$stamp"
@@ -159,10 +182,10 @@ stop_warming () {
     test -t 1 && printf '\r\033[K' || true
     echo
     echo "warming interrupted after $(format_duration $(( $(date +%s) - time0 )))."
-    echo "The ai-box image is built and usable -- only the id-mapped copy is"
-    echo "unfinished. Re-run $scriptname to finish it here, or just use bin/run:"
-    echo "it will do the remaining work on its first run instead."
-    EXIT_MESSAGE="${YELLOW}bin/build interrupted; the image is usable${RESET}"
+    echo "The new image is built and its layers stay cached, but it was not"
+    echo "filled or checked, so it is not ai-box: bin/run starts the previous"
+    echo "image. Re-run $scriptname to finish; it has only the copy left to do."
+    EXIT_MESSAGE="${YELLOW}bin/build interrupted; ai-box is the previous image${RESET}"
     exit 130
 }
 trap stop_warming INT TERM
@@ -217,14 +240,13 @@ case "$warm_status" in
     130|$((128+2))|$((128+15)))
         # Signalled without our trap running (e.g. SIGINT delivered straight
         # to the child by the terminal's process group).
-        echo "warming interrupted. The ai-box image is built and usable;"
-        echo "re-run $scriptname to finish the id-mapped copy, or let bin/run"
-        echo "do it on first run."
-        EXIT_MESSAGE="${YELLOW}bin/build interrupted; the image is usable${RESET}"
+        echo "warming interrupted. The new image is built and cached, but not"
+        echo "filled or checked, so it is not ai-box; re-run $scriptname to finish."
+        EXIT_MESSAGE="${YELLOW}bin/build interrupted; ai-box is the previous image${RESET}"
         exit 130 ;;
     *)
-        echo "warning: warming exited with status $warm_status." >&2
-        echo "         The image is built; bin/run will do this work on first run." >&2
+        echo "error: warming exited with status $warm_status; the new image was" >&2
+        echo "       not filled or checked, so it is not ai-box." >&2
         exit "$warm_status" ;;
 esac
 
@@ -245,17 +267,8 @@ if test "$(cat data/extras/refresh 2>/dev/null)" != "$ubuntu_refresh"; then
 fi
 
 # The new image ships only when its fill and the self-check pass; otherwise
-# the old one is ai-box again. The fill keeps the old one's extras for
-# KEEP_DAYS, so it starts as before.
-restore_old_image () {
-    if test -n "$image_old"; then
-        podman tag "$image_old" ai-box
-        echo "ai-box is the previous image again: the new one shipped nothing" >&2
-    else
-        podman untag ai-box
-        echo "no ai-box image: the first one shipped nothing; its layers stay cached" >&2
-    fi
-}
+# the old one is ai-box again, put back as the script leaves. The fill keeps
+# the old one's extras for KEEP_DAYS, so it starts as before.
 
 fill_status=0
 podman run --rm \
@@ -271,7 +284,6 @@ podman run --rm \
     --entrypoint /home/ubuntu/bin/extras-fill \
     ai-box || fill_status=$?
 if test "$fill_status" != 0; then
-    restore_old_image
     exit "$fill_status"
 fi
 
@@ -282,9 +294,9 @@ echo "$ubuntu_refresh" > data/extras/refresh
 check_status=0
 $scriptdir/self-check --deep || check_status=$?
 if test "$check_status" != 0; then
-    restore_old_image
     exit "$check_status"
 fi
+is_image_pending=
 
 # Each build leaves the previous ai-box untagged, and podman keeps them all.
 # Remove them now that the new one is built and filled; podman removes an
