@@ -492,6 +492,13 @@ COPY --chown=1000:1000 --chmod=0644 files/containers/storage-user.conf /home/ubu
 
 COPY --chmod=0755 files/docker-entrypoint /usr/local/bin/docker-entrypoint
 
+# A UTF-8 locale for the programs in the box. With no LANG the C locale is
+# ASCII ("ANSI_X3.4-1968"): a tool that asks the locale takes a non-ASCII
+# letter for two characters, and the shell's line editing breaks on one.
+# C.UTF-8 is in glibc itself, so no locales package. Set here, last: an ENV
+# higher up would rebuild every layer below it.
+ENV LANG=C.UTF-8
+
 WORKDIR /app
 # The entrypoint runs as root until it drops privileges, and the PATH set
 # above begins with two folders a box can write. Its own commands are looked
