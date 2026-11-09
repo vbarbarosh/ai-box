@@ -11,7 +11,18 @@ scriptname=`basename $script`
 # git, except that in a GIT=commit box (bin/run mounts /run/git) git commit,
 # push and pull, and git tag when it makes or deletes one, say which command
 # does it instead of failing on a read-only .git or a missing key. Everything
-# else goes to git as it is, listing tags included.
+# else goes to git as it is, listing tags included. Only in the workspace's
+# repository: one the agent made itself, a fixture or a clone, has a .git it
+# can write, and git works there as anywhere.
+
+# is_workspace_repository <git's options before the command...>: true when
+# git, given -C, --git-dir and the like, would work in /app's .git.
+is_workspace_repository () {
+    case "$(/usr/bin/git "$@" rev-parse --absolute-git-dir 2>/dev/null)" in
+        /app/.git|/app/.git/*) return 0 ;;
+    esac
+    return 1
+}
 
 if test -d /run/git; then
     skip=
@@ -26,8 +37,11 @@ if test -d /run/git; then
             -C|-c) skip=1 ;;
             -*) ;;
             commit|push|pull)
-                echo "git $arg: .git is read-only in this box; the host does it: run '$arg' (see '$arg --help')" >&2
-                exit 1 ;;
+                if is_workspace_repository "${@:1:arg_count-1}"; then
+                    echo "git $arg: .git is read-only in this box; the host does it: run '$arg' (see '$arg --help')" >&2
+                    exit 1
+                fi
+                break ;;
             tag)
                 # No word after it, or an option that lists or verifies: read only.
                 is_reading=
@@ -40,7 +54,7 @@ if test -d /run/git; then
                             is_reading=1 ;;
                     esac
                 done
-                if test -z "$is_reading"; then
+                if test -z "$is_reading" && is_workspace_repository "${@:1:arg_count-1}"; then
                     echo "git tag: .git is read-only in this box; the host does it: run 'tag' (see 'tag --help'); no tag is moved or deleted" >&2
                     exit 1
                 fi
