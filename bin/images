@@ -40,6 +40,11 @@ case "${1:-}" in
     -h|--help)   usage_print; exit 0 ;;
     -*)          usage_print >&2; exit 1 ;;
 esac
+# --remove with no image is a mistake, not a listing.
+if test -n "$removal" && test $# -eq 0; then
+    usage_print >&2
+    exit 1
+fi
 
 data="$(dirname "$scriptdir")/data/images"
 store_opts=(--root "$data" --storage-driver overlay)
@@ -50,14 +55,22 @@ test "$(id -u)" -ne 0 || { echo "error: run as the user who runs the box." >&2; 
 # podman stamps the path it opened the store under into the store's database
 # and then refuses every other path -- which is what happens when the repo
 # moves, or when the box opens the same files as /var/lib/shared. Nothing an
-# image store needs is in there, so it goes after every run.
+# image store needs is in there, so it goes after every run. One run at a
+# time: it must not go from under another that is in the middle of a pull.
+mkdir -p "$(dirname "$data")"
+exec 9>"$(dirname "$data")/images.lock"
+if ! flock -n 9; then
+    echo "another run of $scriptname holds the store; waiting for it" >&2
+    flock 9
+fi
 trap 'rm -rf "$data/db.sql" "$data/libpod"; echo -e "$EXIT_MESSAGE"' EXIT
 
 # mysql:8.0 -> docker.io/library/mysql:8.0, so the stored name is the name the
 # box looks for; short names resolve through a different registries.conf there.
+# A first part with a dot or a port, or localhost, is a registry already.
 ref_from_image () {
     case "$1" in
-        */*) case "${1%%/*}" in *.*|*:*) echo "$1" ;; *) echo "docker.io/$1" ;; esac ;;
+        */*) case "${1%%/*}" in *.*|*:*|localhost) echo "$1" ;; *) echo "docker.io/$1" ;; esac ;;
         *)   echo "docker.io/library/$1" ;;
     esac
 }
