@@ -382,9 +382,9 @@ weekly or less. So they live in `data/extras`, each under its version:
 ```
 data/extras/
   versions          what is here, name=version, as in /etc/ai-box/versions
-  ms-playwright/    chromium-1234/, firefox-1538/, webkit-2336/, and 1.61.1's
+  ms-playwright/    chromium-1254/, firefox-1572/, webkit-2388/, and 1.61.1's
                     chromium-1228/ with its headless shell
-  cypress/          14.5.4/
+  cypress/          16.2.1/
   huggingface/      the whisper model
   chrome/           155.0.8059.39-1/, current -> 155.0.8059.39-1
   npm/              2.1.292-0.160.1/ (claude-code-codex), current -> ...
@@ -609,9 +609,11 @@ resolve.
 ### What the image was built with
 
 Six versions are pinned as build arguments (Node, Playwright, Puppeteer,
-Cypress, ImageMagick, oxipng), and a seventh in the Dockerfile itself: the
-older Playwright whose Chromium is kept for projects that pin it
-(`PLAYWRIGHT_PINNED_VERSION`). Everything else -- the Python and npm libraries,
+Cypress, ImageMagick, oxipng), each declared just above the step that uses
+it, so a bump rebuilds the image from that step on and leaves the package
+layer alone. They move only by hand: nothing bumps them and nothing reminds
+of them. A seventh is in the Dockerfile itself: the older Playwright whose
+Chromium is kept for projects that pin it (`PLAYWRIGHT_PINNED_VERSION`). Everything else -- the Python and npm libraries,
 phpredis, Composer, yt-dlp, Chrome, and the two agent CLIs -- asks its
 upstream for the current release at build time, so two builds a week apart
 differ. Each layer records what it resolved in `/etc/ai-box/versions`;
@@ -621,7 +623,10 @@ both. Every download the Dockerfile and the fill make themselves is
 checksum-verified (Node, Composer, yt-dlp, oxipng, ImageMagick, Chrome);
 phpredis, Playwright's browsers, Cypress and the model come by their own
 tools. The checksum comes from the same publisher as the artifact: that guards against corruption and torn releases, not against a
-compromised upstream. npm, pip and apt add their own registry-side integrity
+compromised upstream. Chrome's goes one step further: its package list is
+checked against the repository's signed Release, and the signature against
+the fingerprint of Google's key written in the Dockerfile and in
+`extras-fill`. npm, pip and apt add their own registry-side integrity
 checks on top.
 
 ## Faster inner runs

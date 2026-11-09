@@ -13,14 +13,13 @@ FROM ubuntu:24.04 AS runtime
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG UBUNTU_REFRESH=manual
-ARG NODE_VERSION=24.20.0
-ARG PLAYWRIGHT_VERSION=1.62.1
-ARG PUPPETEER_VERSION=25.9.0
-ARG CYPRESS_VERSION=14.5.4
-ARG IMAGEMAGICK_VERSION=7.1.2-30
-ARG OXIPNG_VERSION=10.2.0
 ARG WHISPER_MODEL=small
 ARG TZ=Europe/Chisinau
+
+# The six versions pinned by hand (Node, Playwright, Puppeteer, Cypress,
+# oxipng, ImageMagick) are not here: each is declared just above the step
+# that uses it. An ARG is part of every RUN below it, so one declared here
+# would expire the package layer at each bump.
 
 # The browsers, the speech model and the two agent CLIs are not in the image:
 # they live in data/extras on the host, which bin/build fills (extras-fill)
@@ -151,6 +150,7 @@ RUN install -d -o ubuntu -g ubuntu -m 0755 /etc/ai-box \
 
 # The release directory carries SHASUMS256.txt for every artifact in it, so
 # the tarball is checked against its own publisher before it is unpacked.
+ARG NODE_VERSION=24.22.2
 RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" -o /tmp/SHASUMS256.txt \
     && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" -o "/tmp/node-v${NODE_VERSION}-linux-x64.tar.xz" \
     && (cd /tmp && grep "  node-v${NODE_VERSION}-linux-x64.tar.xz$" /tmp/SHASUMS256.txt | sha256sum -c -) \
@@ -170,6 +170,9 @@ USER ubuntu
 # npm's download cache is retained by BuildKit for later builds but is not
 # committed to the image. The browsers themselves are extras-fill's: neither
 # Puppeteer nor Cypress downloads one here.
+ARG PLAYWRIGHT_VERSION=1.65.0
+ARG PUPPETEER_VERSION=25.16.0
+ARG CYPRESS_VERSION=16.2.1
 RUN --mount=type=cache,target=/home/ubuntu/.npm,uid=1000,gid=1000 \
     PUPPETEER_SKIP_DOWNLOAD=true CYPRESS_INSTALL_BINARY=0 npm install --global --no-audit --no-fund \
         "playwright@${PLAYWRIGHT_VERSION}" \
@@ -287,10 +290,13 @@ RUN curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-25
 
 # oxipng is absent from the Ubuntu archive, so it comes from the project's own
 # release. GitHub publishes each asset's digest next to the download, so the
-# tarball is verified without a checksum copied into this file.
+# tarball is verified without a checksum copied into this file. The digest is
+# asked of GitHub's API, which answers an address with no token 60 times an
+# hour; a refusal leaves it empty, and the step says so.
+ARG OXIPNG_VERSION=10.2.1
 RUN oxipng_dir="oxipng-${OXIPNG_VERSION}-x86_64-unknown-linux-musl" \
     && oxipng_digest="$(curl -fsSL "https://api.github.com/repos/oxipng/oxipng/releases/tags/v${OXIPNG_VERSION}" | jq -r --arg name "${oxipng_dir}.tar.gz" '.assets[] | select(.name == $name) | .digest // empty')" \
-    && test -n "${oxipng_digest}" \
+    && { test -n "${oxipng_digest}" || { echo "error: GitHub's API gave no digest for ${oxipng_dir}.tar.gz: no such release, or its limit of 60 requests an hour for an address with no token; wait and build again" >&2; exit 1; }; } \
     && curl -fsSL "https://github.com/oxipng/oxipng/releases/download/v${OXIPNG_VERSION}/${oxipng_dir}.tar.gz" -o /tmp/oxipng.tar.gz \
     && echo "${oxipng_digest#sha256:}  /tmp/oxipng.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/oxipng.tar.gz -C /usr/local/bin --strip-components=1 "${oxipng_dir}/oxipng" \
@@ -311,9 +317,10 @@ RUN oxipng_dir="oxipng-${OXIPNG_VERSION}-x86_64-unknown-linux-musl" \
 # one-line wrapper that runs `magick <name>`, the ImageMagick 7 spelling of
 # each tool. The probes prove the unpacked tree finds its own coders and that
 # `identify` reaches identify.
+ARG IMAGEMAGICK_VERSION=7.1.2-35
 RUN magick_asset="ImageMagick-${IMAGEMAGICK_VERSION}-gcc-x86_64.AppImage" \
     && magick_digest="$(curl -fsSL "https://api.github.com/repos/ImageMagick/ImageMagick/releases/tags/${IMAGEMAGICK_VERSION}" | jq -r --arg name "${magick_asset}" '.assets[] | select(.name == $name) | .digest // empty')" \
-    && test -n "${magick_digest}" \
+    && { test -n "${magick_digest}" || { echo "error: GitHub's API gave no digest for ${magick_asset}: no such release, or its limit of 60 requests an hour for an address with no token; wait and build again" >&2; exit 1; }; } \
     && curl -fsSL "https://github.com/ImageMagick/ImageMagick/releases/download/${IMAGEMAGICK_VERSION}/${magick_asset}" -o /tmp/magick.AppImage \
     && echo "${magick_digest#sha256:}  /tmp/magick.AppImage" | sha256sum -c - \
     && chmod 0755 /tmp/magick.AppImage \
@@ -340,7 +347,8 @@ RUN magick_asset="ImageMagick-${IMAGEMAGICK_VERSION}-gcc-x86_64.AppImage" \
 # installs a real `docker` command, so tooling inside is unchanged.
 RUN --mount=type=cache,target=/var/cache/apt \
     --mount=type=cache,target=/var/lib/apt/lists \
-    apt-get update \
+    mv /etc/apt/apt.conf.d/docker-clean /tmp/docker-clean \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
         aardvark-dns \
         buildah \
@@ -356,6 +364,7 @@ RUN --mount=type=cache,target=/var/cache/apt \
         podman-docker \
         slirp4netns \
         uidmap \
+    && mv /tmp/docker-clean /etc/apt/apt.conf.d/docker-clean \
     && docker --version \
     && podman --version \
     && printf 'podman=%s\npodman-compose=%s\n' "$(dpkg-query -W -f='${Version}' podman)" "$(dpkg-query -W -f='${Version}' podman-compose)" >> /etc/ai-box/versions
@@ -393,12 +402,27 @@ RUN touch /etc/containers/nodocker
 # PUPPETEER_EXECUTABLE_PATH points it here; extras-fill checks that it does.
 # /usr/bin/google-chrome is the guard in files/bin.ai, which says what is
 # missing when data/extras has no Chrome.
+#
+# The package list is checked before it is believed. Google signs the
+# repository's Release file, and Release carries the SHA-256 of Packages.
+# gpgv, which apt brings, verifies the signature; the last field of its
+# VALIDSIG line is the fingerprint of the primary key, compared with the one
+# written here, so a key served beside the list proves nothing by being
+# there. extras-fill checks the same way before it takes the package.
 RUN --mount=type=cache,target=/var/cache/apt \
     --mount=type=cache,target=/var/lib/apt/lists \
-    curl -fsSL https://dl.google.com/linux/chrome/deb/dists/stable/main/binary-amd64/Packages -o /tmp/Packages \
+    curl -fsSL https://dl.google.com/linux/linux_signing_key.pub -o /tmp/google.asc \
+    && awk '/^-----BEGIN PGP PUBLIC KEY BLOCK-----$/ { body = 1; next } /^-----END PGP PUBLIC KEY BLOCK-----$/ { body = 0 } body && NF && !/^=/ && !/:/' /tmp/google.asc | base64 -d > /tmp/google.gpg \
+    && curl -fsSL https://dl.google.com/linux/chrome/deb/dists/stable/InRelease -o /tmp/InRelease \
+    && gpgv --keyring /tmp/google.gpg --status-fd 3 --output /tmp/Release /tmp/InRelease 3> /tmp/gpgv.status \
+    && grep -q '^\[GNUPG:\] VALIDSIG .* EB4C1BFD4F042F6DDDCCEC917721F63BD38B4796$' /tmp/gpgv.status \
+    && curl -fsSL https://dl.google.com/linux/chrome/deb/dists/stable/main/binary-amd64/Packages -o /tmp/Packages \
+    && packages_sha256="$(awk '/^SHA256:$/ { sha = 1; next } sha && $3 == "main/binary-amd64/Packages" { print $1; exit }' /tmp/Release)" \
+    && test -n "${packages_sha256}" \
+    && echo "${packages_sha256}  /tmp/Packages" | sha256sum -c - \
     && chrome_depends="$(awk '/^Package: google-chrome-stable$/ { stable=1 } stable && /^Depends:/ { sub(/^Depends: /, ""); print; exit }' /tmp/Packages)" \
     && test -n "${chrome_depends}" \
-    && rm /tmp/Packages \
+    && rm /tmp/Packages /tmp/Release /tmp/InRelease /tmp/google.asc /tmp/google.gpg /tmp/gpgv.status \
     && mv /etc/apt/apt.conf.d/docker-clean /tmp/docker-clean \
     && apt-get update \
     && apt-get satisfy -y --no-install-recommends "${chrome_depends}" \

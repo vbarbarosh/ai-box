@@ -15,12 +15,12 @@ the old one, never a change inside it:
 data/extras/
   versions                     what is here, one name=version a line
   ms-playwright/
-    chromium-1234/             Playwright 1.62.1's revisions, as Playwright names them
-    firefox-1538/
-    webkit-2336/
+    chromium-1254/             Playwright 1.65.0's revisions, as Playwright names them
+    firefox-1572/
+    webkit-2388/
     chromium-1228/             Playwright 1.61.1's, for projects that pin it
     chromium_headless_shell-1228/
-  cypress/14.5.4/
+  cypress/16.2.1/
   huggingface/                 faster-whisper-small, in Hugging Face's own layout
   chrome/
     154.0.8037.97/             unpacked from the .deb

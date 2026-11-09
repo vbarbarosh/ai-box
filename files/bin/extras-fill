@@ -119,7 +119,29 @@ if test "${REFRESH:-}" != 1 && test -d $root/chrome/current; then
     chrome_version=`readlink $root/chrome/current`
 fi
 if test -z "$chrome_version"; then
-    curl -fsSL https://dl.google.com/linux/chrome/deb/dists/stable/main/binary-amd64/Packages -o $tempdir/Packages
+    # The package list names the package and its SHA-256, so it is checked
+    # before it is believed, as the Dockerfile's Chrome layer checks it:
+    # Google signs Release, Release carries the SHA-256 of Packages, and the
+    # signature must come from the primary key whose fingerprint is here.
+    chrome_repo=https://dl.google.com/linux/chrome/deb/dists/stable
+    chrome_key=EB4C1BFD4F042F6DDDCCEC917721F63BD38B4796
+    curl -fsSL https://dl.google.com/linux/linux_signing_key.pub -o $tempdir/google.asc
+    awk '/^-----BEGIN PGP PUBLIC KEY BLOCK-----$/ { body = 1; next } /^-----END PGP PUBLIC KEY BLOCK-----$/ { body = 0 } body && NF && !/^=/ && !/:/' $tempdir/google.asc | base64 -d > $tempdir/google.gpg
+    curl -fsSL $chrome_repo/InRelease -o $tempdir/InRelease
+    if ! gpgv --keyring $tempdir/google.gpg --status-fd 3 --output $tempdir/Release $tempdir/InRelease 3> $tempdir/gpgv.status 2> $tempdir/gpgv.log \
+        || ! grep -q "^\[GNUPG:\] VALIDSIG .* $chrome_key\$" $tempdir/gpgv.status; then
+        cat $tempdir/gpgv.log >&2
+        echo "$scriptname: Chrome's Release file is not signed by the key trusted here, $chrome_key" >&2
+        exit 1
+    fi
+    curl -fsSL $chrome_repo/main/binary-amd64/Packages -o $tempdir/Packages
+    packages_sha256=`awk '/^SHA256:$/ { sha = 1; next } sha && $3 == "main/binary-amd64/Packages" { print $1; exit }' $tempdir/Release`
+    test -n "$packages_sha256"
+    if ! echo "$packages_sha256  $tempdir/Packages" | sha256sum -c - > /dev/null; then
+        echo "$scriptname: Chrome's package list does not match its signed Release: the repository" >&2
+        echo "             changed between the two downloads, or the list is not Google's; run it again" >&2
+        exit 1
+    fi
     chrome_version=`awk '/^Package: google-chrome-stable$/ { stable=1 } stable && /^Version:/ { print $2; exit }' $tempdir/Packages`
     chrome_filename=`awk '/^Package: google-chrome-stable$/ { stable=1 } stable && /^Filename:/ { print $2; exit }' $tempdir/Packages`
     chrome_sha256=`awk '/^Package: google-chrome-stable$/ { stable=1 } stable && /^SHA256:/ { print $2; exit }' $tempdir/Packages`
