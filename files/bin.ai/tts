@@ -10,8 +10,8 @@
 // The duration in seconds goes to stdout: a screencast is paced by waiting out
 // each line, so the caller needs the length it just synthesised.
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 const {MsEdgeTTS, OUTPUT_FORMAT} = require('msedge-tts');
 
 const DEFAULT_VOICE = 'en-US-AndrewMultilingualNeural';

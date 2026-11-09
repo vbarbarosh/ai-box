@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # http://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
-# http://redsymbol.net/articles/unofficial-bash-strict-mode/
+# http://redsymbol.net/articles/unofficial-bash-strict-mode
 set -o nounset -o errexit -o pipefail
 
 script=`realpath $0`
@@ -85,7 +85,7 @@ ubuntu_refresh="$(date -u +%G-W%V)"
 stamp="$(dirname "$scriptdir")/data/refresh"
 
 pull_flag=
-if [ "$(cat "$stamp" 2>/dev/null)" != "$ubuntu_refresh" ]; then
+if test "$(cat "$stamp" 2>/dev/null)" != "$ubuntu_refresh"; then
     pull_flag=--pull
 fi
 
@@ -244,7 +244,7 @@ case "$warm_status" in
             test "$final" -ge 0 2>/dev/null || final=0
             echo "  warmed in $(format_duration $(( $(date +%s) - time0 ))) ($(format_bytes $final) written)"
         fi ;;
-    130|$((128+2))|$((128+15)))
+    130|$((128+15)))
         # Signalled without our trap running (e.g. SIGINT delivered straight
         # to the child by the terminal's process group).
         echo "warming interrupted. The new image is built and cached, but not"

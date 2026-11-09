@@ -24,7 +24,7 @@ const USAGE_CONFIG = {
     bar_width: 30,
 };
 const USAGE_COLUMN_GAP = '   │   ';
-const HELP_TEXT = [
+const USAGE = [
     'usage: usage',
     'Prints the rate-limit usage of the agents the box is logged in to, Claude and',
     'GPT side by side; reads their logins in data/, starts nothing.',
@@ -35,7 +35,7 @@ cli(main);
 async function main()
 {
     if (['-h', '--help'].includes(process.argv[2])) {
-        console.log(HELP_TEXT);
+        console.log(USAGE);
         return;
     }
 

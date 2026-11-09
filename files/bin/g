@@ -17,7 +17,7 @@ scriptname=`basename $script`
 if test -z "$*"; then
     if ! command -v xclip >/dev/null 2>&1; then
         echo "usage: g PATTERN   (no clipboard here: xclip is not installed)" >&2
-        exit 2
+        exit 1
     fi
     ag -a --hidden "$(xclip -selection clipboard -out)"
 else

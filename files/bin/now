@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # http://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
-# http://redsymbol.net/articles/unofficial-bash-strict-mode/
+# http://redsymbol.net/articles/unofficial-bash-strict-mode
 set -o nounset -o errexit -o pipefail
 
 script=`realpath $0`
