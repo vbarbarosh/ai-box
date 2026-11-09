@@ -242,10 +242,13 @@ fi
 # the host listens on, and the host runs a fixed script in the workspace, for
 # the branch checked out when the box started:
 #   commit   a patch and a message from the box, applied on HEAD and
-#            committed: as you, with your hooks; your staging left alone
+#            committed: as you; your staging left alone
 #   push     git push --no-follow-tags origin <branch>:<branch>
 #   pull     git fetch of <branch>, then git merge; a conflict is undone
-# No force, no other branch, no tags, no rewriting. The relays end with the box.
+# No force, no other branch, no tags, no rewriting. No hook either, in any of
+# the three: a hook is a file of the work tree or runs one, the box writes the
+# work tree, and the host would run the box's code as you. The relays end with
+# the box.
 if test -n "$git_relays"; then
     branch=$(git -C "$workspace" symbolic-ref --quiet --short HEAD || true)
     if ! test -d "$workspace/.git"; then
@@ -279,6 +282,13 @@ if test -n "$git_relays"; then
             cat <<'EOF'
 export GIT_TERMINAL_PROMPT=0 GIT_LITERAL_PATHSPECS=1
 unset GIT_INDEX_FILE
+# No hook runs for the box: core.hooksPath set to a place that holds none,
+# for every git below and whatever git starts itself. It goes after any
+# configuration your environment already passes; the last one wins.
+config_count=${GIT_CONFIG_COUNT:-0}
+export "GIT_CONFIG_KEY_$config_count=core.hooksPath"
+export "GIT_CONFIG_VALUE_$config_count=/dev/null"
+export GIT_CONFIG_COUNT=$((config_count + 1))
 cd "$workspace" || exit 1
 check_branch () {
     local current
@@ -295,7 +305,7 @@ EOF
         # setsid: no terminal to prompt on, so a locked key fails the push
         # instead of asking for a passphrase over the box's own screen.
         # -t: the box closes its side once it has sent; the answer may take
-        # as long as the hooks or the network do.
+        # as long as git or the network does.
         setsid socat -t 3600 "UNIX-LISTEN:$relaydir/box/$name.sock,fork,mode=600" "EXEC:$relaydir/$name" \
             </dev/null >/dev/null 2>&1 &
         relays+=($!)
@@ -307,7 +317,7 @@ EOF
     relay commit <<'EOF'
 # A message ended by a NUL, then the patch. The patch goes on HEAD in a scratch
 # index, so neither your staging nor the working tree is read or changed; then
-# git commit, with your hooks, and your index follows for the paths it touched.
+# git commit, with no hook run, and your index follows for the paths it touched.
 # A masked file is refused: the box sees it emptied.
 commit () {
     local message= tempdir path masked_path status paths=()

@@ -253,10 +253,14 @@ for the branch checked out when the box started:
 One patch, one commit. The host applies it to a scratch index on `HEAD`, so
 neither your staging nor the working tree is read or changed: the files
 already hold the change, and the patch is what gets recorded. Commits are
-yours: your `user.name`, your hooks. A patch that does not apply to `HEAD` as
-it is now is refused, and so is one touching a file the box sees masked
-(`.env`, `MASK`). From paths, the agent names every file, new, changed
-or deleted; no globs, no `-a`. No force, no other branch, no tags, no amend,
+yours: your `user.name`. Your hooks do not run, for `commit`, `push` or
+`pull`: a hook is a file of the work tree (husky's `.husky/`) or runs one
+(`npm test`), the box writes the work tree, and the host would run the box's
+code as you. What a hook checks, the agent runs in the box, or you run before
+you take its work. A patch that does not apply to `HEAD` as it is now is
+refused, and so is one touching a file the box sees masked (`.env`, `MASK`).
+From paths, the agent names every file, new, changed or deleted; no globs, no
+`-a`. No force, no other branch, no tags, no amend,
 rebase or reset: there is no command for them. If you switch the branch on the
 host, `commit` and `pull` refuse until you switch back.
 

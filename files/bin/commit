@@ -10,7 +10,7 @@ scriptname=`basename $script`
 
 # One patch, one commit, on the branch the box was started on. .git is
 # read-only in the box: the host applies the patch on HEAD and commits it, as
-# its own user, with its hooks, through the socket bin/run mounts with
+# its own user, with no hook run, through the socket bin/run mounts with
 # GIT=commit. The working tree is not touched: the files already hold the
 # change, the patch is what gets recorded.
 
