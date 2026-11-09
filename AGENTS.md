@@ -30,7 +30,7 @@ copy, about 2.5 GB, for `bin/run`'s id mapping. A re-indent, or an edit under
 `files/`, rebuilds from that step on. Leave the Dockerfile's layout alone
 unless the change needs it, and say when a change will rebuild the image.
 
-<!-- rules: begin https://github.com/vbarbarosh/rules 23ee7f914c2d2eedd3008d4725155f0bfdd4cb4f 2026-10-19 -->
+<!-- rules: begin https://github.com/vbarbarosh/rules 63173ed8a15a4a320f62c8840c0c38d554d056e3 2026-11-09 -->
 
 ## Rules
 
@@ -55,7 +55,9 @@ Apply:
   PROJ-28, PROJ-30. Not PROJ-03 (not a node project), PROJ-04 (the build makes
   an image, no `build/` or `dist/`), PROJ-06 (the rules set nothing for
   `.env`), PROJ-07 to PROJ-11 (no `config/`, `src/`, unit tests or
-  `tests/`), PROJ-25 (no website), PROJ-29 (no demos).
+  `tests/`), PROJ-25 (no website), PROJ-29 (no demos). Of PROJ-14's files,
+  not `.env.example` or `package.json`: ai-box reads no `.env` and is no
+  node project.
 - **GIT** all: GIT-01 to GIT-05.
 - **DOC** DOC-06 to DOC-10, the audit notes in `notes/`. The rest describe
   the rulebook's own documents.
@@ -65,8 +67,9 @@ Apply:
 Do not apply:
 
 - **REL**: no release and no `dist/`; the image is built on each host.
-- **LOG**: no service or job writes an event log; the build log is a
-  transcript of the terminal.
+- **LOG**: no service or job writes an event log. `data/logs/run.log` is
+  one line for each start, the podman command for the author to read back,
+  in local time; the build log is a transcript of the terminal.
 - **CSS, SQL, VUE, UI, UIM**: no stylesheet, query, component or page.
 
 ## Lint
@@ -88,7 +91,7 @@ A developer given a task does not start typing. They first picture what the
 change leads to: what if this, what if that. Only then do they start, and the
 work follows from that picture. An agent works the same way.
 
-![The task, the four "what if" questions asked before the first edit, and what each one shapes: the scope, what is said before the change, the states to test, the stories to tell](https://raw.githubusercontent.com/vbarbarosh/rules/23ee7f914c2d2eedd3008d4725155f0bfdd4cb4f/img/guides/consequences_first.svg)
+![The task, the four "what if" questions asked before the first edit, and what each one shapes: the scope, what is said before the change, the states to test, the stories to tell](https://raw.githubusercontent.com/vbarbarosh/rules/63173ed8a15a4a320f62c8840c0c38d554d056e3/img/guides/consequences_first.svg)
 
 ### Why
 
@@ -105,9 +108,9 @@ costs the author a message, found one at a time.
    when the data is long, empty, absurd? What does the author not see from
    where they stand?
 2. **Let the answers shape the work.** They decide the scope (see
-   [One example, all cases](https://github.com/vbarbarosh/rules/blob/23ee7f914c2d2eedd3008d4725155f0bfdd4cb4f/agents/one_example_all_cases.md)), the states to
-   test (see [Every state before done](https://github.com/vbarbarosh/rules/blob/23ee7f914c2d2eedd3008d4725155f0bfdd4cb4f/agents/every_state_before_done.md)) and the
-   stories to tell (see [Every point of view](https://github.com/vbarbarosh/rules/blob/23ee7f914c2d2eedd3008d4725155f0bfdd4cb4f/agents/every_point_of_view.md)).
+   [One example, all cases](https://github.com/vbarbarosh/rules/blob/63173ed8a15a4a320f62c8840c0c38d554d056e3/agents/one_example_all_cases.md)), the states to
+   test (see [Every state before done](https://github.com/vbarbarosh/rules/blob/63173ed8a15a4a320f62c8840c0c38d554d056e3/agents/every_state_before_done.md)) and the
+   stories to tell (see [Every point of view](https://github.com/vbarbarosh/rules/blob/63173ed8a15a4a320f62c8840c0c38d554d056e3/agents/every_point_of_view.md)).
 3. **Tell the author what was found.** A consequence that makes the change a
    poor one is said before the change, with the better way. What was decided
    along the way is said for information. What is truly ambiguous is asked,
@@ -121,9 +124,9 @@ instance of it. The agent's job is to find the rest of that kind, not to fix
 the one instance and stop.
 
 This page is meant to be handed to an agent as it is: "work like this".
-It is one case of [Consequences first](https://github.com/vbarbarosh/rules/blob/23ee7f914c2d2eedd3008d4725155f0bfdd4cb4f/agents/consequences_first.md).
+It is one case of [Consequences first](https://github.com/vbarbarosh/rules/blob/63173ed8a15a4a320f62c8840c0c38d554d056e3/agents/consequences_first.md).
 
-![The author shows one dropdown that lags: fixing only that one leaves nine lagging; finding every case like it changes all of them, and the one left is named in the reply](https://raw.githubusercontent.com/vbarbarosh/rules/23ee7f914c2d2eedd3008d4725155f0bfdd4cb4f/img/guides/one_example_all_cases.svg)
+![The author shows one dropdown that lags: fixing only that one leaves nine lagging; finding every case like it changes all of them, and the one left is named in the reply](https://raw.githubusercontent.com/vbarbarosh/rules/63173ed8a15a4a320f62c8840c0c38d554d056e3/img/guides/one_example_all_cases.svg)
 
 ### Why
 
@@ -167,9 +170,9 @@ discover it after.
 A piece of UI is not done when it looks right with the one text it was built
 with. It is done when it holds with every text and value it will be given.
 The agent tries those before saying "done", not the author after.
-It is one case of [Consequences first](https://github.com/vbarbarosh/rules/blob/23ee7f914c2d2eedd3008d4725155f0bfdd4cb4f/agents/consequences_first.md).
+It is one case of [Consequences first](https://github.com/vbarbarosh/rules/blob/63173ed8a15a4a320f62c8840c0c38d554d056e3/agents/consequences_first.md).
 
-![the close button pushed under a long alert message](https://raw.githubusercontent.com/vbarbarosh/rules/23ee7f914c2d2eedd3008d4725155f0bfdd4cb4f/agents/every-state-alert.png)
+![the close button pushed under a long alert message](https://raw.githubusercontent.com/vbarbarosh/rules/63173ed8a15a4a320f62c8840c0c38d554d056e3/agents/every-state-alert.png)
 
 The alert above was built with a short message. A long one took the whole
 row, and the close button wrapped to a line of its own, under the text. One
@@ -183,7 +186,7 @@ million. Each of those breaks a layout made for the sample, and each break
 costs the author a screenshot and a message. Trying the states takes the
 agent minutes; finding them one by one takes the author days.
 
-![One alert in six states: the sample, too long, missing, tiny, absurd and error; in each the text wraps inside and the close button stays top right](https://raw.githubusercontent.com/vbarbarosh/rules/23ee7f914c2d2eedd3008d4725155f0bfdd4cb4f/img/guides/every_state_before_done.svg)
+![One alert in six states: the sample, too long, missing, tiny, absurd and error; in each the text wraps inside and the close button stays top right](https://raw.githubusercontent.com/vbarbarosh/rules/63173ed8a15a4a320f62c8840c0c38d554d056e3/img/guides/every_state_before_done.svg)
 
 ### The rule
 
@@ -222,9 +225,9 @@ is built, how someone would break it. An agent tells each story before
 calling the work done, and the screen follows the user's story, whatever the
 implementation does inside.
 
-It is one case of [Consequences first](https://github.com/vbarbarosh/rules/blob/23ee7f914c2d2eedd3008d4725155f0bfdd4cb4f/agents/consequences_first.md).
+It is one case of [Consequences first](https://github.com/vbarbarosh/rules/blob/63173ed8a15a4a320f62c8840c0c38d554d056e3/agents/consequences_first.md).
 
-![Send is pressed: on the left the comment is nowhere for 2 seconds, then it shows; on the right it shows at once marked Sending, and the mark goes when the server has it](https://raw.githubusercontent.com/vbarbarosh/rules/23ee7f914c2d2eedd3008d4725155f0bfdd4cb4f/drafts/optimistic-updates.gif)
+![Send is pressed: on the left the comment is nowhere for 2 seconds, then it shows; on the right it shows at once marked Sending, and the mark goes when the server has it](https://raw.githubusercontent.com/vbarbarosh/rules/63173ed8a15a4a320f62c8840c0c38d554d056e3/drafts/optimistic-updates.gif)
 
 Above, a comment sent under a task. In the implementation's story it goes
 to the server, waits until it is filed, and comes back with the next
@@ -243,7 +246,7 @@ author finds each one by living that story, one message each.
 
 ### The points of view
 
-![One task, send a comment, and the stories around it: the user's, the implementation's and the attacker's told by the author; the operator's, the next developer's and the newcomer's suggested by the agent](https://raw.githubusercontent.com/vbarbarosh/rules/23ee7f914c2d2eedd3008d4725155f0bfdd4cb4f/img/guides/every_point_of_view.svg)
+![One task, send a comment, and the stories around it: the user's, the implementation's and the attacker's told by the author; the operator's, the next developer's and the newcomer's suggested by the agent](https://raw.githubusercontent.com/vbarbarosh/rules/63173ed8a15a4a320f62c8840c0c38d554d056e3/img/guides/every_point_of_view.svg)
 
 
 Told by the author:
@@ -287,10 +290,10 @@ at a glance, where the same data as a paragraph takes a minute and still
 hides how its parts connect. The agent asks what the data answers, picks the
 kind of diagram for it, and draws that.
 
-It is one case of [Every point of view](https://github.com/vbarbarosh/rules/blob/23ee7f914c2d2eedd3008d4725155f0bfdd4cb4f/agents/every_point_of_view.md): the
+It is one case of [Every point of view](https://github.com/vbarbarosh/rules/blob/63173ed8a15a4a320f62c8840c0c38d554d056e3/agents/every_point_of_view.md): the
 author's story is what they see.
 
-![Six questions about the data, each with the kinds of picture that answer it: how it works, what it is made of, where it stands, what went wrong, how much and how often, what it changes](https://raw.githubusercontent.com/vbarbarosh/rules/23ee7f914c2d2eedd3008d4725155f0bfdd4cb4f/img/guides/data_as_a_picture.svg)
+![Six questions about the data, each with the kinds of picture that answer it: how it works, what it is made of, where it stands, what went wrong, how much and how often, what it changes](https://raw.githubusercontent.com/vbarbarosh/rules/63173ed8a15a4a320f62c8840c0c38d554d056e3/img/guides/data_as_a_picture.svg)
 
 ### Why
 
@@ -316,7 +319,7 @@ itself. Text that holds data is the author's work left undone.
    the colours of the page it is shown on. A picture that was not looked at
    was not checked.
 6. **No shape, no picture.** One fact, a yes or no, a name, a single number:
-   a sentence. A code change: its diff.
+   a sentence.
 
 ### Which picture for which data
 
@@ -327,8 +330,12 @@ itself. Text that holds data is the author's work left undone.
   (what is decided where),
   [state](https://vbarbarosh.github.io/rules/docs/diagrams.html#state)
   (what it can be, what moves it),
+  [flywheel](https://vbarbarosh.github.io/rules/docs/diagrams.html#flywheel)
+  (what feeds itself, where it is slow),
   [swimlanes](https://vbarbarosh.github.io/rules/docs/diagrams.html#swimlanes)
   (who does each step),
+  [step tree](https://vbarbarosh.github.io/rules/docs/diagrams.html#steptree)
+  (stages and their small steps, who does each, what it costs),
   [pipeline](https://vbarbarosh.github.io/rules/docs/diagrams.html#pipeline)
   (files in, steps, files out),
   [call graph](https://vbarbarosh.github.io/rules/docs/diagrams.html#callgraph)
@@ -345,6 +352,10 @@ itself. Text that holds data is the author's work left undone.
   (where each part runs),
   [entities](https://vbarbarosh.github.io/rules/docs/diagrams.html#entities)
   (the data and its links),
+  [class](https://vbarbarosh.github.io/rules/docs/diagrams.html#class)
+  (the types of a program and their links),
+  [breakdown](https://vbarbarosh.github.io/rules/docs/diagrams.html#breakdown)
+  (a whole split into its parts),
   [modules](https://vbarbarosh.github.io/rules/docs/diagrams.html#modules)
   and [matrix](https://vbarbarosh.github.io/rules/docs/diagrams.html#matrix)
   (which file or part needs which),
@@ -366,6 +377,8 @@ itself. Text that holds data is the author's work left undone.
 - **What went wrong, and why?** A failure, a log:
   [timeline](https://vbarbarosh.github.io/rules/docs/diagrams.html#timeline)
   (what happened when),
+  [chronology](https://vbarbarosh.github.io/rules/docs/diagrams.html#chronology)
+  (what one user did, in order),
   [cause tree](https://vbarbarosh.github.io/rules/docs/diagrams.html#causetree)
   (why),
   [one case](https://vbarbarosh.github.io/rules/docs/diagrams.html#case)
@@ -377,8 +390,14 @@ itself. Text that holds data is the author's work left undone.
 - **How much, how often?** Numbers:
   [line chart](https://vbarbarosh.github.io/rules/docs/diagrams.html#linechart)
   (over time),
+  [bar chart](https://vbarbarosh.github.io/rules/docs/diagrams.html#barchart)
+  (how much of each),
+  [pie chart](https://vbarbarosh.github.io/rules/docs/diagrams.html#piechart)
+  (shares of one whole),
   [heatmap](https://vbarbarosh.github.io/rules/docs/diagrams.html#heatmap)
   (which days and hours),
+  [event plot](https://vbarbarosh.github.io/rules/docs/diagrams.html#eventplot)
+  (every event of many actors, at its time),
   [sankey](https://vbarbarosh.github.io/rules/docs/diagrams.html#sankey)
   (where it goes, how much),
   [service map](https://vbarbarosh.github.io/rules/docs/diagrams.html#servicemap)
@@ -392,6 +411,8 @@ itself. Text that holds data is the author's work left undone.
   sees),
   [change map](https://vbarbarosh.github.io/rules/docs/diagrams.html#changemap)
   (which files),
+  [before and after](https://vbarbarosh.github.io/rules/docs/diagrams.html#delta)
+  (which parts of a system),
   [quadrant](https://vbarbarosh.github.io/rules/docs/diagrams.html#quadrant)
   (what to do first).
 
