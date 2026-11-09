@@ -178,6 +178,18 @@ else
     missing_report required "user namespaces" "sysctl user.max_user_namespaces=15000"
 fi
 
+# Ubuntu 24.04 lets an unprivileged process make a user namespace only under
+# an AppArmor profile that allows it. The apparmor package brings one for
+# podman; rootless podman, and the engine inside the box under it, rest on
+# that file being there and not disabled.
+if test "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || true)" != 1; then
+    ok_report "apparmor" "user namespaces not restricted"
+elif test -e /etc/apparmor.d/podman && ! test -e /etc/apparmor.d/disable/podman; then
+    ok_report "apparmor" "user namespaces restricted; podman's profile is here"
+else
+    missing_report optional "apparmor" "user namespaces restricted, no profile for podman: apt install --reinstall apparmor"
+fi
+
 # bin/run limits the box (--pids-limit, --memory, --cpus) only through the
 # controllers systemd delegates to this session. Missing ones mean the box
 # runs uncapped, not that it fails.

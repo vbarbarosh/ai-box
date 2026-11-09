@@ -963,6 +963,11 @@ fi
 #       own overlay upperdir, so the inner engine uses fuse-overlayfs.
 #   --device /dev/net/tun
 #       Uplink for the inner network namespace.
+#   --security-opt label=disable
+#       For a host with SELinux: without it the mounts above would each need
+#       relabelling, and the inner engine is refused its own mounts. Where
+#       SELinux is off, as on Ubuntu, it changes nothing; AppArmor is not
+#       touched by it.
 #   --security-opt unmask=ALL
 #       Two reasons. The inner runtime writes /proc/sys/net/ipv4/ping_group_range,
 #       which is read-only by default; and it mounts a fresh /proc for every
