@@ -258,7 +258,7 @@ workspace, for the branch checked out when the box started:
 | in the box | on the host |
 |---|---|
 | `commit <file.patch>` | the patch applied on `HEAD` and committed; a `git format-patch` email brings its message, a plain diff takes `-m <message>` |
-| `commit -m <message> <path>...` | the same, with the patch made in the box from those files |
+| `commit -m <message> <path>...` | the same, with the patch made in the box from those files; a `.patch` or `.diff` inside `/app` is such a file, and a folder is refused |
 | `tag <name>` | a new tag on `HEAD`; `tag -m <message> <name>` makes an annotated one |
 | `push` | `git push --no-follow-tags origin refs/heads/<branch>:refs/heads/<branch>`, and with it the tags `tag` made in this box |
 | `pull` | `git fetch` of `<branch>` into `origin/<branch>`, then `git merge` |

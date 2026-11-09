@@ -18,9 +18,10 @@ sock=/run/git/commit.sock
 
 usage_print () {
     echo "usage: $scriptname <file.patch>                 a git format-patch email: its message is used"
-    echo "       $scriptname -m <message> <file.patch>    a plain diff; - reads it from stdin"
+    echo "       $scriptname -m <message> <file.patch>    a plain diff kept outside /app; - reads it from stdin"
     echo "       $scriptname -m <message> <path>...       the patch is made here from these files"
-    echo "       -m again adds a paragraph. Name every file: new, changed or deleted; no globs."
+    echo "       -m again adds a paragraph. Name every file: new, changed or deleted; no globs, no folders."
+    echo "       With -m, a .patch or .diff inside /app is a file to commit, as any other path."
 }
 
 message=
@@ -51,8 +52,27 @@ fi
 tempdir=$(mktemp -d)
 trap 'rm -rf "$tempdir"' EXIT
 
+# One argument may be the patch itself: `-`, or a .patch or .diff file. With
+# -m, such a file inside /app is a file of the project, committed as any
+# other path: a project keeps patch files too, and a plain diff to apply is
+# kept outside /app.
 first_arg=${args[0]}
-if test "${#args[@]}" -eq 1 && { test "$first_arg" = - || case "$first_arg" in *.patch|*.diff) true ;; *) false ;; esac; }; then
+is_patch=
+if test "${#args[@]}" -eq 1; then
+    case "$first_arg" in
+        -) is_patch=1 ;;
+        *.patch|*.diff)
+            if test -z "$message"; then
+                is_patch=1
+            else
+                case "$(realpath -m -s -- "$first_arg")" in
+                    /app/*) ;;
+                    *) is_patch=1 ;;
+                esac
+            fi ;;
+    esac
+fi
+if test -n "$is_patch"; then
     if test "$first_arg" = -; then
         cat > "$tempdir/patch"
     else
@@ -76,7 +96,10 @@ else
         case "$relative" in
             ..|../*) echo "$scriptname: $arg is outside /app" >&2; exit 1 ;;
         esac
-        if test -c "$relative"; then
+        if test -d "$relative" || test "$(git cat-file -t "HEAD:$relative" 2>/dev/null)" = tree; then
+            echo "$scriptname: $arg is a folder: name every file in it" >&2
+            exit 1
+        elif test -c "$relative"; then
             # bin/run masks secrets with /dev/null; the box never sees them.
             echo "$scriptname: $arg is hidden from the box; the author commits it" >&2
             exit 1
