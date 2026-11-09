@@ -5,6 +5,13 @@ An ephemeral environment for coding agents: `bin/build` makes the image,
 [docs/README.md](docs/README.md); audits and working notes are in
 [notes/](notes/).
 
+## The safest way is the default
+
+What protects the host is on without being asked for; what gives the box
+more is an option the author names when starting it. A change that widens
+what a box reaches by default is said before it is made, with the narrower
+way beside it.
+
 ## Checks
 
 - `.github/workflows/lint.yml` runs on every push: `bash -n` and shellcheck

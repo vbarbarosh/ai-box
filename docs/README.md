@@ -6,6 +6,12 @@ can run containers inside itself, so an agent can `docker build` and
 `docker compose up` the project it is working on without any of it touching the
 host. Everything it creates is discarded when you leave.
 
+**The safest way is the default.** What protects the host is on without
+being asked for: `.git` is read-only, the `.env` files are hidden, a folder
+that is no repository does not become one in the box, no hook runs for the
+box. What gives the box more (`GIT=commit`, `AGENTDIR`, a wider `REPOS`) is
+what you name when you start it.
+
 ## What the host needs
 
 No Docker, no root daemon, no `/dev/kvm`. The environment runs under **rootless
@@ -172,7 +178,7 @@ See [the official Codex login reference](https://learn.chatgpt.com/docs/develope
 | path | mode | |
 |---|---|---|
 | `$PWD` → `/app` | rw | the project; the only writable host path |
-| `$PWD/.git` | **ro** | mounted over the writable workspace, when present; always |
+| `$PWD/.git` | **ro** | mounted over the writable workspace, always. Where the workspace has none, an empty read-only folder stands there, so the box cannot make a repository of it: `git init` is yours, on the host. The folder is empty and gone when the box ends |
 | `.env`, `.env.*` in `$PWD`, at any depth | hidden | each replaced with `/dev/null`, so they never enter the box; not searched for under `node_modules`, `vendor` and `.git`, and taken at the start: one made later is in sight. `.env.example`, `.sample`, `.template` and `.dist` stay, as templates. `MASK="a.pem keys"` hides more, files and folders, patterns too: a folder reads as empty. A name it cannot hide (not there, outside the workspace) gets a line on stderr and the box starts without it |
 | `~/repos` → `/repos` | ro | or `$REPOS` when set; set but empty, no `/repos`. `REPOS_PICK="a b"` mounts only those repositories of it, each at `/repos/<name>`, a missing or symlinked one skipped with a line on stderr; set but empty, no `/repos`. The `.env` and `.env.*` of each repository in it are hidden as the workspace's are, at any depth; a workspace inside it is hidden there as at `/app`, `MASK` included |
 | `~/sockets` → `/sockets` | ro | or `$SOCKETS` when set; set but empty, no `/sockets`. The host's sockets for the box to talk to: read-only still connects, and the folder is mounted rather than each socket, so a service that starts again with a new socket is still reached |
@@ -202,6 +208,11 @@ Paths must name descendants of those two mounts: `/etc`, the mount roots,
 `.` or `..` components, repeated slashes, colons and symlink paths are
 refused. A trailing slash is allowed; duplicate paths add only one mount.
 Spaces in folder names cannot be represented in this list.
+
+A repository the box makes in a subfolder of the workspace cannot be stopped
+by a mount: `git` run inside that subfolder reads the config the box wrote
+and runs what it names. Look at a `.git` you did not make before you run git
+beside it.
 
 `FRESH=1` refuses nonempty `READONLY`, since it has no host workspace or
 agent folder. `FRESH=app` allows workspace folders but refuses paths into

@@ -185,9 +185,23 @@ fi
 # relay scripts and their sockets. Gone when bin/run ends.
 rundir=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/ai-box.XXXXXX")
 relays=()
+git_placeholder=
 cleanup () {
     if test "${#relays[@]}" -gt 0; then
         kill "${relays[@]}" 2>/dev/null || true
+    fi
+    # Only ever an empty folder: rmdir leaves anything else alone. Not while
+    # another box stands on the same workspace: removing the folder would
+    # take the mount from under it, and its /app/.git would be writable.
+    if test -n "$git_placeholder"; then
+        boxes_count=$(
+            for id in $(podman ps --quiet 2>/dev/null); do
+                podman inspect --format '{{range .Mounts}}{{if eq .Destination "/app"}}{{.Source}}{{end}}{{end}}' "$id" 2>/dev/null || true
+            done | grep -cxF "$workspace" || true
+        )
+        if test "$boxes_count" = 0; then
+            rmdir "$git_placeholder" 2>/dev/null || true
+        fi
     fi
     rm -rf "$rundir"
 }
@@ -214,8 +228,23 @@ for name in AI_BOX_MASK AI_BOX_PIDS AI_BOX_MEMORY AI_BOX_CPUS; do
         exit 1
     fi
 done
-if test -n "$workspace" && test -e "$workspace/.git"; then
-    opts+=(-v "$workspace/.git:/app/.git:ro")
+
+# A workspace that is no repository does not become one in the box: an empty
+# read-only folder stands at /app/.git, and git init is yours, on the host. A
+# .git the box had made, config and all, would be read by your next git in
+# that folder, a shell prompt's included, and run what it names. Podman makes
+# the folder for the mount; it stays empty and goes when the box ends, so
+# nothing is left where nothing was. One left by a box that was killed is
+# empty too, and is taken for none.
+if test -n "$workspace"; then
+    if test -L "$workspace/.git"; then
+        opts+=(-v "$workspace/.git:/app/.git:ro")
+    elif ! test -e "$workspace/.git" || { test -d "$workspace/.git" && test -z "$(ls -A "$workspace/.git" 2>/dev/null)"; }; then
+        opts+=(--tmpfs "/app/.git:ro,nosuid,nodev,noexec,mode=0555,notmpcopyup")
+        git_placeholder=$workspace/.git
+    else
+        opts+=(-v "$workspace/.git:/app/.git:ro")
+    fi
 fi
 
 # Secrets never enter the box: every .env and .env.* in the workspace, at any
@@ -325,6 +354,11 @@ fi
 # the box writes the work tree, and the host would run the box's code as you.
 # The relays end with the box.
 if test -n "$git_relays"; then
+    if test -n "$git_placeholder"; then
+        echo "error: GIT=commit, but $workspace is not a git repository;" >&2
+        echo "       run git init there first: the box cannot make one" >&2
+        exit 1
+    fi
     branch=$(git -C "$workspace" symbolic-ref --quiet --short HEAD || true)
     if ! test -d "$workspace/.git"; then
         echo "error: GIT=commit, but $workspace/.git is not a directory" >&2
