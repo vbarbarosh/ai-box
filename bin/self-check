@@ -205,10 +205,11 @@ if test "$(id -u)" -eq 0 && test -z "${SUDO_USER-}"; then
     echo "  ${dim}(running as bare root -- this reports root's range, which is${reset}"
     echo "  ${dim} probably not the user who will run the box)${reset}"
 fi
-# The inner engine carves its own range out of this one, so a short range is
-# the setting that breaks nesting with an opaque newuidmap error.
+# The inner engine carves its own range out of this one, so too few ids is
+# the setting that breaks nesting with an opaque newuidmap error. Every range
+# of the user counts: podman maps them all.
 for subid_file in /etc/subuid /etc/subgid; do
-    ids_count=$(awk -F: -v u="$me" '$1==u {print $3; exit}' "$subid_file" 2>/dev/null || true)
+    ids_count=$(awk -F: -v u="$me" '$1==u { total += $3 } END { if (total) print total }' "$subid_file" 2>/dev/null || true)
     if test "${ids_count:-0}" -ge 65536 2>/dev/null; then
         ok_report "$subid_file" "$ids_count ids"
     else

@@ -116,15 +116,16 @@ for module in "${modules[@]}"; do
     test -c "$2" || modules_missing+=("$module")
 done
 
-# The inner engine carves its own range out of this one. A range shorter than
-# 65536 is the setting that breaks nesting, with an opaque newuidmap error.
+# The inner engine carves its own range out of this one. Fewer than 65536 ids
+# is the setting that breaks nesting, with an opaque newuidmap error. A user
+# may hold several ranges; podman maps them all, so they are counted together.
 # Under `sudo bin/configure`, id -un is root -- but the subordinate range has
 # to belong to whoever will actually run the box. Guarded above: bare root
 # never gets this far.
 me=${SUDO_USER:-$(id -un)}
 subids_missing=()
 for subid_file in /etc/subuid /etc/subgid; do
-    ids_count=$(awk -F: -v u="$me" '$1==u {print $3; exit}' "$subid_file" 2>/dev/null || true)
+    ids_count=$(awk -F: -v u="$me" '$1==u { total += $3 } END { if (total) print total }' "$subid_file" 2>/dev/null || true)
     if test "${ids_count:-0}" -ge 65536 2>/dev/null; then
         continue
     elif test -n "${ids_count:-}"; then
@@ -163,6 +164,11 @@ for package in "${packages[@]}"; do
     esac
 done
 if test "${#packages_missing[@]}" -gt 0; then
+    # A new machine or a cleaned one has no package lists, and apt-get install
+    # then knows no package. A list that cannot be refreshed (one broken
+    # source) is not a reason to stop: the install says so if it matters.
+    change_apply "apt-get update" sudo -n apt-get update \
+        || echo "  apt-get update failed; installing from the lists there are" >&2
     change_apply "apt-get install: ${packages_missing[*]}" sudo -n apt-get install -y "${packages_missing[@]}"
 fi
 
@@ -187,7 +193,7 @@ echo
 echo "subordinate ids"
 granted=
 for subid_file in /etc/subuid /etc/subgid; do
-    ids_count=$(awk -F: -v u="$me" '$1==u {print $3; exit}' "$subid_file" 2>/dev/null || true)
+    ids_count=$(awk -F: -v u="$me" '$1==u { total += $3 } END { if (total) print total }' "$subid_file" 2>/dev/null || true)
     if test "${ids_count:-0}" -ge 65536 2>/dev/null; then
         echo "  present: $subid_file has $ids_count ids for $me"
     else
