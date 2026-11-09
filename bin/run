@@ -390,16 +390,30 @@ if test -n "$git_relays"; then
             printf ' %q' "${masked_paths[@]}"
             printf ' )\n'
             cat <<'EOF'
+# No errexit: each script ends with a line that carries its status to the
+# box, so a failure is checked where it can happen, not left to end the script.
+set -o nounset -o pipefail
+# The box may hang up before the answer: the script goes on to its cleanup.
+trap '' PIPE
 export GIT_TERMINAL_PROMPT=0 GIT_LITERAL_PATHSPECS=1
 unset GIT_INDEX_FILE
 # No hook runs for the box: core.hooksPath set to a place that holds none,
-# for every git below and whatever git starts itself. It goes after any
-# configuration your environment already passes; the last one wins.
+# for every git below and whatever git starts itself. And git's own tidying
+# stays in the foreground, so it ends before the next relay takes its turn.
+# Both go after any configuration your environment already passes; the last
+# one wins.
 config_count=${GIT_CONFIG_COUNT:-0}
 export "GIT_CONFIG_KEY_$config_count=core.hooksPath"
 export "GIT_CONFIG_VALUE_$config_count=/dev/null"
-export GIT_CONFIG_COUNT=$((config_count + 1))
+export "GIT_CONFIG_KEY_$((config_count + 1))=gc.autoDetach"
+export "GIT_CONFIG_VALUE_$((config_count + 1))=false"
+export GIT_CONFIG_COUNT=$((config_count + 2))
 cd "$workspace" || exit 1
+# One relay at a time on a repository, whichever box asks: each reads HEAD
+# and then writes it. The lock is on the .git folder itself, so nothing is
+# added to it.
+exec 9< .git || exit 1
+flock 9 || exit 1
 check_branch () {
     local current
     current=$(git symbolic-ref --quiet --short HEAD)
@@ -416,7 +430,7 @@ EOF
         # instead of asking for a passphrase over the box's own screen.
         # -t: the box closes its side once it has sent; the answer may take
         # as long as git or the network does.
-        setsid socat -t 3600 "UNIX-LISTEN:$relaydir/box/$name.sock,fork,mode=600" "EXEC:$relaydir/$name" \
+        setsid socat -t 3600 "UNIX-LISTEN:$relaydir/box/$name.sock,fork,max-children=8,mode=600" "EXEC:$relaydir/$name" \
             </dev/null >/dev/null 2>&1 &
         relays+=($!)
         for _ in $(seq 20); do
@@ -432,11 +446,23 @@ EOF
 # and .gitmodules: the folder of a submodule is a repository the box writes,
 # config included, and once your index names it, your next git status reads
 # that config and runs what it says.
+# A request is 100 MiB at most, message and patch together: more is refused,
+# not spooled. The spool is removed however the script ends.
+request_max=104857600
+tempdir=
+trap 'test -z "$tempdir" || rm -rf "$tempdir"' EXIT
 commit () {
-    local message= tempdir path masked_path status paths=()
-    IFS= read -r -d '' message || true
-    tempdir=$(mktemp -d)
-    cat > "$tempdir/patch"
+    local message= path masked_path status paths=()
+    tempdir=$(mktemp -d) || return 1
+    head -c "$((request_max + 1))" > "$tempdir/request" || return 1
+    if test "$(stat -c %s "$tempdir/request")" -gt "$request_max"; then
+        echo "commit: the patch is larger than $((request_max / 1048576)) MiB"
+        return 1
+    fi
+    {
+        IFS= read -r -d '' message || true
+        cat > "$tempdir/patch"
+    } < "$tempdir/request" || return 1
     if test -z "$message" || ! test -s "$tempdir/patch"; then
         echo "commit: needs a message and a patch"
         rm -rf "$tempdir"
@@ -444,7 +470,7 @@ commit () {
     fi
     check_branch || { rm -rf "$tempdir"; return 1; }
     export GIT_INDEX_FILE="$tempdir/index"
-    git read-tree HEAD
+    git read-tree HEAD || return 1
     if ! git apply --cached "$tempdir/patch"; then
         echo "commit: the patch does not apply to $branch as it is now"
         rm -rf "$tempdir"
@@ -462,7 +488,7 @@ commit () {
             echo "commit: .gitmodules is the list of submodules; commit it yourself"
             rm -rf "$tempdir"
             return 1
-        elif git ls-files -s -- "$path" | grep -q '^160000 '; then
+        elif test "$(git ls-files -s -- "$path" | cut -c1-6)" = 160000; then
             echo "commit: $path is a submodule entry; commit it yourself"
             rm -rf "$tempdir"
             return 1
