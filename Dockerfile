@@ -493,5 +493,8 @@ COPY --chown=1000:1000 --chmod=0644 files/containers/storage-user.conf /home/ubu
 COPY --chmod=0755 files/docker-entrypoint /usr/local/bin/docker-entrypoint
 
 WORKDIR /app
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint"]
+# The entrypoint runs as root until it drops privileges, and the PATH set
+# above begins with two folders a box can write. Its own commands are looked
+# up on the system's PATH; the box's is handed over for the program it starts.
+ENTRYPOINT ["/bin/bash", "-c", "AI_BOX_PATH=\"$PATH\" PATH=/usr/sbin:/usr/bin:/sbin:/bin exec /usr/local/bin/docker-entrypoint \"$@\"", "docker-entrypoint"]
 CMD ["bash"]

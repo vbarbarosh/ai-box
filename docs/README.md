@@ -535,6 +535,9 @@ membership in a `docker` group was itself root-equivalent.
 through; `DOCKER_DIND` is gone. It now creates `/run/user/1000` before dropping
 privileges, because an inner engine with no runtime directory of its own drops
 a pause-process file into `$PWD` — straight into your mounted workspace.
+Until it drops them it runs as root, so the image starts it on the system's
+`PATH`, not on the box's, which begins with two folders a box can write; the
+program it starts gets the box's `PATH` back.
 
 **`bin/run`** — `podman run` with the flags that make nesting work. Each is
 there for one specific reason; see the comments in the script.

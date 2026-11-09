@@ -12,14 +12,23 @@ scriptname=`basename $script`
 # owns, it drops a pause-process file into $PWD -- straight into the mounted
 # host workspace. /run is a fresh tmpfs each start, so this is made here, as
 # root, in the moment before privileges are dropped.
-install -d -o ubuntu -g ubuntu -m 0700 /run/user/1000
+/usr/bin/install -d -o ubuntu -g ubuntu -m 0700 /run/user/1000
 
 export XDG_RUNTIME_DIR=/run/user/1000
 export HOME=/home/ubuntu
 export USER=ubuntu
 export LOGNAME=ubuntu
 
-exec setpriv \
+# The image starts this script on the system's PATH and hands over the box's
+# own in AI_BOX_PATH (the Dockerfile's ENTRYPOINT): everything above ran as
+# root, and the box's PATH begins with two folders a box can write. The
+# program gets the box's PATH back.
+if test -n "${AI_BOX_PATH:-}"; then
+    export PATH=$AI_BOX_PATH
+    unset AI_BOX_PATH
+fi
+
+exec /usr/bin/setpriv \
     --reuid=ubuntu \
     --regid=ubuntu \
     --init-groups \
