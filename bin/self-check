@@ -802,6 +802,76 @@ EOF
         else
             missing_report required "limits of a box" "$(echo "$limits_line" | tr -d '\r' | tail -1)"
         fi
+
+        # A folder of the host that stands in the box twice. An agent that
+        # works in its own documents/ has them at /app, in its folder at
+        # /agentdir and in the folder of every agent at /agents: what is kept
+        # from the box at the first is kept from it at the other two. First
+        # a folder that is no repository, then one that is, mounted as the
+        # workspace and as AGENTDIR at once. Last, a writable mount that
+        # holds the run folder is refused: the workspace is that folder's
+        # own parent, and bin/run must end before it starts a box.
+        twice_dir=$deep_dir/twice
+        mkdir -p "$twice_dir/agents/one/documents/keys" "$twice_dir/agents/two/.git"
+        echo secret > "$twice_dir/agents/one/documents/.env"
+        echo secret > "$twice_dir/agents/one/documents/keys/key.pem"
+        echo 'ref: refs/heads/main' > "$twice_dir/agents/two/.git/HEAD"
+        twice_fault=
+        if ! twice_line=$(cd "$twice_dir/agents/one/documents" && env -u GIT -u FRESH -u READONLY \
+            REPOS_PICK= SOCKETS= AGENTS="$twice_dir/agents" AGENTDIR="$twice_dir/agents/one" MASK=keys \
+            timeout 150 "$scriptdir/run" bash -seu 2>&1 <<'EOF'
+# Each step says its name first: the last line printed is the one that failed.
+for folder in /app /agentdir/documents /agents/one/documents; do
+    echo "failed: .env is in sight at $folder"
+    test ! -s "$folder/.env"
+    echo "failed: a folder named in MASK is in sight at $folder"
+    test -z "$(ls -A "$folder/keys")"
+done
+echo "failed: the box made .git at /agentdir/documents"
+if mkdir -p /agentdir/documents/.git/hooks 2>/dev/null; then
+    exit 1
+fi
+echo twice-ok
+EOF
+        ) || test "$(echo "$twice_line" | tr -d '\r' | tail -1)" != twice-ok; then
+            twice_fault=$(echo "$twice_line" | tr -d '\r' | tail -1)
+            twice_fault=${twice_fault:-"the box said nothing"}
+        elif test -e "$twice_dir/agents/one/documents/.git"; then
+            twice_fault="a .git folder was left behind in a folder that had none"
+        fi
+        if test -z "$twice_fault"; then
+            if ! twice_line=$(cd "$twice_dir/agents/two" && env -u GIT -u FRESH -u READONLY -u MASK \
+                REPOS_PICK= SOCKETS= AGENTS= AGENTDIR="$twice_dir/agents/two" \
+                timeout 150 "$scriptdir/run" bash -seu 2>&1 <<'EOF'
+echo "failed: .git is writable at /app"
+if touch /app/.git/blocked 2>/dev/null; then
+    exit 1
+fi
+echo "failed: .git is writable at /agentdir, the same folder"
+if touch /agentdir/.git/blocked 2>/dev/null; then
+    exit 1
+fi
+echo twice-ok
+EOF
+            ) || test "$(echo "$twice_line" | tr -d '\r' | tail -1)" != twice-ok; then
+                twice_fault=$(echo "$twice_line" | tr -d '\r' | tail -1)
+                twice_fault=${twice_fault:-"the box said nothing"}
+            fi
+        fi
+        if test -z "$twice_fault"; then
+            if twice_line=$(cd "${XDG_RUNTIME_DIR:-/tmp}" && env -u GIT -u FRESH -u MASK -u READONLY -u AGENTDIR -u SSH_AUTH_SOCK \
+                REPOS_PICK= SOCKETS= AGENTS= timeout 15 "$scriptdir/run" true 2>&1 </dev/null); then
+                twice_fault="a workspace that holds the run folder was not refused"
+            elif test "${twice_line#*holds the folder of this run}" = "$twice_line"; then
+                twice_fault=$(echo "$twice_line" | tr -d '\r' | tail -1)
+                twice_fault=${twice_fault:-"bin/run ended with no word of the run folder"}
+            fi
+        fi
+        if test -z "$twice_fault"; then
+            ok_report "a folder mounted twice" "hidden and read-only at each path; the run folder kept out"
+        else
+            missing_report required "a folder mounted twice" "$twice_fault"
+        fi
     else
         missing_report optional "container inside box" "no image yet; bin/build"
     fi

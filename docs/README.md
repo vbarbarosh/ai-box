@@ -69,9 +69,9 @@ podman rm -af
 bin/configure      # install what the host is missing (idempotent)
 bin/self-check     # report what is here and what is not; --deep also starts
                    # boxes: a container inside one, the boundary tried from
-                   # inside (.git, the masks, the relay, the end), the
-                   # image's tools started as the box's user, and the
-                   # box's limits read from inside
+                   # inside (.git, the masks, the relay, a folder mounted
+                   # twice, the end), the image's tools started as the
+                   # box's user, and the box's limits read from inside
 bin/build          # build the image (tag: ai-box), fill data/extras, check it
                    # with self-check --deep; a build that does not finish
                    # leaves the previous image as it was
@@ -124,6 +124,9 @@ would see `/tmp/ssh-*/agent.*` and could use every key in it). `pull` and
 
 `REPOS`, `SOCKETS`, `AGENTDIR` and `AGENTS` are each refused, with the
 reason, when the path is not a folder, is `/`, or holds your home directory.
+The workspace and `AGENTDIR`, the two writable ones, are refused when they
+hold the folder of the run itself (`ai-box.*` under `$XDG_RUNTIME_DIR`, or
+under `/tmp` without it): the host runs the relay scripts kept there.
 `GIT=rw` and the old `AI_BOX_*` names are refused too, each with the name to
 use in its place.
 
@@ -240,6 +243,14 @@ Paths must name descendants of those two mounts: `/etc`, the mount roots,
 refused. A trailing slash is allowed; duplicate paths add only one mount.
 Spaces in folder names cannot be represented in this list.
 
+A folder of the host may stand in the box twice: the workspace inside
+`AGENTDIR` or `AGENTS` (an agent that works in its own `documents/`), or
+holding them (the app's own repository). It is protected at both paths: the
+workspace's read-only `.git` has the same mount under `/agentdir`, and every
+hidden file, the workspace's and those of `/repos`, is hidden again wherever
+`/agentdir` and `/agents` show it. `READONLY` is not followed this way: it
+protects the paths it names, so name both.
+
 A repository the box makes in a subfolder of the workspace cannot be stopped
 by a mount: `git` run inside that subfolder reads the config the box wrote
 and runs what it names. Look at a `.git` you did not make before you run git
@@ -248,7 +259,7 @@ beside it.
 `FRESH=1` refuses nonempty `READONLY`, since it has no host workspace or
 agent folder. `FRESH=app` allows workspace folders but refuses paths into
 the saved state it hides. Existing `.git` protection and secret-file masks
-still apply. Protection is at the named mount path; another writable mount
+still apply. `READONLY` protects the path it names; another writable mount
 of the same host folder would still allow writes through that other path.
 
 #### Its own sign-in

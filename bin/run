@@ -219,6 +219,22 @@ exit_cleanup () {
 }
 trap exit_cleanup EXIT
 
+# The run folder stays outside every writable mount: the host runs the relay
+# scripts kept in it, and a box that held the folder could rewrite them.
+rundir_resolved=$(realpath "$rundir")
+rundir_refuse () {
+    case "$rundir_resolved/" in
+        "$2"/*)
+            echo "error: $1 ($2) holds the folder of this run ($rundir_resolved);" >&2
+            echo "       the box could rewrite what the host runs from it. Start the box in" >&2
+            echo "       another folder, or set XDG_RUNTIME_DIR to one outside it." >&2
+            exit 1 ;;
+    esac
+}
+if test -n "$workspace"; then
+    rundir_refuse "the workspace" "$workspace"
+fi
+
 # Read-only, mounted over the read-write workspace, always: a box with write
 # access to .git can rewrite history, move or delete any branch, drop stashes.
 # GIT=commit gives the agent commit, tag, push and pull through the host instead;
@@ -286,11 +302,13 @@ env_files_print () {
 # times it is named; one with a colon cannot be written as a mount, and is
 # said.
 declare -A mask_seen=()
+masked_host_paths=()
 mask_mount () {
     if test -n "${mask_seen[$1]+set}"; then
         return
     fi
     mask_seen[$1]=1
+    masked_host_paths+=("$2")
     case "$1" in
         *:*)
             echo "ai-box: cannot hide $1: a colon in its path" >&2
@@ -782,6 +800,7 @@ if test -n "$agentdir"; then
         exit 1
     fi
     ssh_agent_refuse AGENTDIR "$agentdir"
+    rundir_refuse AGENTDIR "$agentdir"
     opts+=(-v "$agentdir:/agentdir")
 fi
 
@@ -811,6 +830,48 @@ if test -n "$agents"; then
     ssh_agent_refuse AGENTS "$agents"
     opts+=(-v "$agents:/agents:ro")
 fi
+
+# A folder of the host that stands in the box twice is protected at both
+# paths. The workspace may lie in AGENTDIR or AGENTS (an agent that works in
+# its own documents/), or hold them (the app's own repository): the same files
+# are then at /app and under /agentdir or /agents, and a .git that is
+# read-only at the one, or a file hidden there, would be writable or in sight
+# at the other. So the workspace's .git gets its mount again under /agentdir,
+# and everything hidden so far, in the workspace and in /repos, is hidden
+# again wherever these two show it. READONLY is not followed: it protects the
+# paths it names, and whoever sets it names both.
+twin_folders=()
+twin_mounts=()
+if test -n "$agentdir"; then
+    twin_folders+=("$agentdir")
+    twin_mounts+=(/agentdir)
+fi
+if test -n "$agents"; then
+    twin_folders+=("$agents")
+    twin_mounts+=(/agents)
+fi
+masked_host_paths_before=("${masked_host_paths[@]}")
+git_twin=
+for ((i = 0; i < ${#twin_folders[@]}; i++)); do
+    twin_folder=${twin_folders[i]}
+    twin_mount=${twin_mounts[i]}
+    if test -n "$workspace" && test "$twin_mount" = /agentdir; then
+        case "$workspace/.git/" in
+            "$twin_folder"/*)
+                git_twin=$twin_mount${workspace#"$twin_folder"}/.git
+                if test -n "$git_placeholder"; then
+                    opts+=(--tmpfs "$git_twin:ro,nosuid,nodev,noexec,mode=0555,notmpcopyup")
+                else
+                    opts+=(-v "$workspace/.git:$git_twin:ro")
+                fi ;;
+        esac
+    fi
+    for masked_host_path in "${masked_host_paths_before[@]}"; do
+        case "$masked_host_path/" in
+            "$twin_folder"/*) mask_mount "$twin_mount${masked_host_path#"$twin_folder"}" "$masked_host_path" ;;
+        esac
+    done
+done
 
 # The agent's own sign-in, when the shell that starts the box sets one:
 # passed by name, so its value is on no command line and never in data/.
@@ -889,8 +950,10 @@ for readonly_path in "${readonly_paths[@]}"; do
         esac
     fi
     if test -z "${readonly_seen[$inside]+set}"; then
-        # .git already has this exact mount; Podman refuses duplicate targets.
-        if test "$inside" != /app/.git; then
+        # .git already has this exact mount, at /app and at its second path
+        # under /agentdir, and a hidden folder is read-only as it stands:
+        # Podman refuses duplicate targets.
+        if test "$inside" != /app/.git && test "$inside" != "$git_twin" && test -z "${mask_seen[$inside]+set}"; then
             opts+=(-v "$outside:$inside:ro")
         fi
         readonly_seen[$inside]=1
