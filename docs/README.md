@@ -584,6 +584,9 @@ There used to be four Chromiums in the image and two ImageMagicks. Now:
   so each is the same ImageMagick as `magick`. `convert` still works, with
   upstream's one-line deprecation warning on stderr. (The AppImage's own
   launcher only tells the names apart under FUSE, which the box does not have.)
+  The AppImage unpacks its folders for their owner alone, and in the build
+  that is root: the build opens them to every user, and tries each of the
+  probes as `ubuntu`, the user of the box.
 
 That was 925 MB measured — 652 + 262 + 11 — off the image as it then was.
 Since then all the browsers have left it: with Cypress's Electron (679 MB),

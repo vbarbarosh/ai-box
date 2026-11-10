@@ -317,6 +317,12 @@ RUN oxipng_dir="oxipng-${OXIPNG_VERSION}-x86_64-unknown-linux-musl" \
 # one-line wrapper that runs `magick <name>`, the ImageMagick 7 spelling of
 # each tool. The probes prove the unpacked tree finds its own coders and that
 # `identify` reaches identify.
+#
+# The AppImage's runtime makes every folder it unpacks 0700 (the one in
+# 7.1.2-35 and later: an extract-and-run in /tmp is then private), and here
+# root unpacks: the chmod opens the tree to the box's user. The probes run as
+# that user, for root walks into a closed folder and the build passed with an
+# ImageMagick no box could start.
 ARG IMAGEMAGICK_VERSION=7.1.2-35
 RUN magick_asset="ImageMagick-${IMAGEMAGICK_VERSION}-gcc-x86_64.AppImage" \
     && magick_digest="$(curl -fsSL "https://api.github.com/repos/ImageMagick/ImageMagick/releases/tags/${IMAGEMAGICK_VERSION}" | jq -r --arg name "${magick_asset}" '.assets[] | select(.name == $name) | .digest // empty')" \
@@ -327,6 +333,7 @@ RUN magick_asset="ImageMagick-${IMAGEMAGICK_VERSION}-gcc-x86_64.AppImage" \
     && cd /opt \
     && /tmp/magick.AppImage --appimage-extract > /dev/null \
     && mv /opt/squashfs-root /opt/imagemagick \
+    && chmod -R a+rX /opt/imagemagick \
     && rm /tmp/magick.AppImage \
     && ln -s /opt/imagemagick/AppRun /usr/local/bin/magick \
     && printf '#!/bin/sh\nexec /opt/imagemagick/AppRun "$(basename "$0")" "$@"\n' > /opt/imagemagick/legacy \
@@ -334,10 +341,8 @@ RUN magick_asset="ImageMagick-${IMAGEMAGICK_VERSION}-gcc-x86_64.AppImage" \
     && for name in convert identify mogrify composite montage compare; do \
         ln -s /opt/imagemagick/legacy "/usr/local/bin/${name}" || exit 1; \
     done \
-    && magick -version \
-    && convert -version \
-    && magick -size 8x8 gradient:red-blue /tmp/probe.webp \
-    && identify /tmp/probe.webp \
+    && setpriv --reuid=ubuntu --regid=ubuntu --init-groups sh -c \
+        'magick -version && convert -version && magick -size 8x8 gradient:red-blue /tmp/probe.webp && identify /tmp/probe.webp' \
     && rm /tmp/probe.webp \
     && echo "imagemagick=${IMAGEMAGICK_VERSION}" >> /etc/ai-box/versions
 
