@@ -902,10 +902,11 @@ done
 # takes the host down with it. Each applies only when the matching cgroup
 # controller is delegated to your session (systemd does that by default on
 # current Ubuntu; bin/self-check reports it). Override with an environment
-# variable; 0 means no limit.
+# variable; 0 means no limit. A limit whose controller is not delegated is
+# left out, and said: the box starts all the same.
 #
 #   PIDS    default 4096
-#   MEMORY  default three quarters of the host's RAM
+#   MEMORY  default three quarters of the host's RAM, swap included
 #   CPUS    default unlimited
 controllers=$(cat "/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/cgroup.controllers" 2>/dev/null || true)
 is_delegated () { case " $controllers " in *" $1 "*) return 0 ;; esac; return 1; }
@@ -914,14 +915,34 @@ pids=${PIDS:-4096}
 memory=${MEMORY:-$(awk '/^MemTotal:/ { printf "%dm", $2 * 3 / 4 / 1024 }' /proc/meminfo)}
 cpus=${CPUS:-0}
 
-if test "$pids" != 0 && is_delegated pids; then
-    opts+=(--pids-limit "$pids")
+limits_dropped=()
+if test "$pids" != 0; then
+    if is_delegated pids; then
+        opts+=(--pids-limit "$pids")
+    else
+        limits_dropped+=(PIDS)
+    fi
 fi
-if test "$memory" != 0 && is_delegated memory; then
-    opts+=(--memory "$memory")
+if test "$memory" != 0; then
+    if is_delegated memory; then
+        # --memory alone lets the box take as much again in swap: Podman sets
+        # the two together to twice the limit. The same value for both is
+        # all of it, with no swap past it.
+        opts+=(--memory "$memory" --memory-swap "$memory")
+    else
+        limits_dropped+=(MEMORY)
+    fi
 fi
-if test "$cpus" != 0 && is_delegated cpu; then
-    opts+=(--cpus "$cpus")
+if test "$cpus" != 0; then
+    if is_delegated cpu; then
+        opts+=(--cpus "$cpus")
+    else
+        limits_dropped+=(CPUS)
+    fi
+fi
+if test "${#limits_dropped[@]}" -gt 0; then
+    limits_dropped_text=$(printf '%s, ' "${limits_dropped[@]}")
+    echo "warning: the box runs with no limit on ${limits_dropped_text%, }: the cgroup controller is not delegated to your session (bin/self-check says which are)" >&2
 fi
 
 # A real init as PID 1: it reaps the orphans that daemonized services and

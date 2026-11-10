@@ -408,6 +408,13 @@ if test -n "$deep"; then
     if podman image exists ai-box 2>/dev/null; then
         deep_dir=$(mktemp -d)
         mkdir -p "$deep_dir/nested"
+        # A limit this session cannot give is lifted for the boxes below:
+        # bin/run then has none to leave out, and its warning of that does
+        # not stand where a check reads a box's last line. "cgroup
+        # delegation" above says it, and "limits of a box" at the end.
+        case "$controllers_missing " in *" pids "*) export PIDS=0 ;; esac
+        case "$controllers_missing " in *" memory "*) export MEMORY=0 ;; esac
+        case "$controllers_missing " in *" cpu "*) export CPUS=0 ;; esac
         # In a scratch folder and without the caller's settings, as every
         # check below: the answer must not depend on where this was run.
         # stdin is redirected, so bin/run asks for no tty and the output has
@@ -750,6 +757,57 @@ EOF
             ok_report "tools as the box's user" "${tools_last#tools-ok }"
         else
             missing_report required "tools as the box's user" "$(echo "$tools_line" | tr -d '\r' | tail -1)"
+        fi
+
+        # The limits bin/run gives a box, read from inside one: a limit whose
+        # controller is delegated must arrive, and the memory one with no
+        # swap past it. The caller's PIDS, MEMORY and CPUS are left out, as
+        # every setting above: the defaults are what is tried.
+        if limits_line=$(cd "$deep_dir/nested" && env -u GIT -u FRESH -u MASK -u READONLY -u AGENTDIR -u PIDS -u MEMORY -u CPUS \
+            REPOS_PICK= SOCKETS= AGENTS= \
+            timeout 150 "$scriptdir/run" bash -seu 2>&1 <<'EOF'
+# limit_read <file>: a limit of the box's own cgroup, "none" where the kernel
+# keeps no such file.
+limit_read () {
+    cat "/sys/fs/cgroup/$1" 2>/dev/null || echo none
+}
+
+echo "limits-are $(limit_read pids.max) $(limit_read memory.max) $(limit_read memory.swap.max)"
+EOF
+        ) && limits_last=$(echo "$limits_line" | tr -d '\r' | tail -1) && test "${limits_last%% *}" = limits-are; then
+            read -r _ limits_pids limits_memory limits_swap <<< "$limits_last"
+            limits_fault=
+            limits_summary=
+            case " $controllers " in
+                *" pids "*)
+                    if test "$limits_pids" = 4096; then
+                        limits_summary="pids 4096"
+                    else
+                        limits_fault="pids.max is $limits_pids, not 4096"
+                    fi ;;
+            esac
+            case " $controllers " in
+                *" memory "*)
+                    case "$limits_memory:$limits_swap" in
+                        :*|*[!0-9]*:*)
+                            limits_fault=${limits_fault:-"memory.max is ${limits_memory:-empty}: no memory limit"} ;;
+                        *:0)
+                            limits_summary="${limits_summary:+$limits_summary, }memory $(format_bytes "$limits_memory"), no swap past it" ;;
+                        *:none)
+                            limits_summary="${limits_summary:+$limits_summary, }memory $(format_bytes "$limits_memory"); this kernel counts no swap" ;;
+                        *)
+                            limits_fault=${limits_fault:-"memory.swap.max is $limits_swap: swap past the memory limit"} ;;
+                    esac ;;
+            esac
+            if test -n "$limits_fault"; then
+                missing_report required "limits of a box" "$limits_fault"
+            elif test -n "$limits_summary"; then
+                ok_report "limits of a box" "$limits_summary"
+            else
+                missing_report optional "limits of a box" "none: no controller is delegated (cgroup delegation, above)"
+            fi
+        else
+            missing_report required "limits of a box" "$(echo "$limits_line" | tr -d '\r' | tail -1)"
         fi
     else
         missing_report optional "container inside box" "no image yet; bin/build"

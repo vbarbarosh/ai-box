@@ -69,8 +69,9 @@ podman rm -af
 bin/configure      # install what the host is missing (idempotent)
 bin/self-check     # report what is here and what is not; --deep also starts
                    # boxes: a container inside one, the boundary tried from
-                   # inside (.git, the masks, the relay, the end), and the
-                   # image's tools started as the box's user
+                   # inside (.git, the masks, the relay, the end), the
+                   # image's tools started as the box's user, and the
+                   # box's limits read from inside
 bin/build          # build the image (tag: ai-box), fill data/extras, check it
                    # with self-check --deep; a build that does not finish
                    # leaves the previous image as it was
@@ -428,12 +429,17 @@ reports which):
 | variable | default | |
 |---|---|---|
 | `PIDS` | 4096 | `--pids-limit`; a fork bomb inside stops here |
-| `MEMORY` | three quarters of the host's RAM | `--memory`; the box is OOM-killed, the host is not |
+| `MEMORY` | three quarters of the host's RAM | `--memory` and `--memory-swap`, the same value: all the box gets, with no swap past it; the box is OOM-killed, the host is not |
 | `CPUS` | unlimited | `--cpus` |
 
-Set one to `0` to lift it. `bin/run` also puts a real init at PID 1
-(`--init`, Podman's own `catatonit`) whenever the host has it, so orphaned
-processes are reaped and `podman stop` ends the box at once.
+Set one to `0` to lift it. A limit whose controller is not delegated is
+left out: `bin/run` says so in one line as it starts, and the box starts all
+the same. `bin/self-check --deep` reads the limits from inside a box: each
+delegated one must have arrived, the memory one with no swap past it.
+
+`bin/run` also puts a real init at PID 1 (`--init`, Podman's own
+`catatonit`) whenever the host has it, so orphaned processes are reaped and
+`podman stop` ends the box at once.
 
 ### The box ends with `bin/run`
 
