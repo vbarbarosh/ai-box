@@ -876,8 +876,10 @@ done
 # The agent's own sign-in, when the shell that starts the box sets one:
 # passed by name, so its value is on no command line and never in data/.
 #   CLAUDE_CODE_OAUTH_TOKEN  claude prefers it to the shared sign-in
-#   CODEX_API_KEY            codex prefers it to the shared sign-in
-#   OPENAI_API_KEY           for other tools; codex 0.163 ignores it
+#   CODEX_API_KEY            `codex exec` prefers it to the shared sign-in;
+#                            codex's own screen never reads it (0.167) and
+#                            signs in from $CODEX_HOME/auth.json alone
+#   OPENAI_API_KEY           for other tools; codex 0.167 ignores it
 for name in CLAUDE_CODE_OAUTH_TOKEN CODEX_API_KEY OPENAI_API_KEY; do
     if test -n "${!name:-}"; then
         opts+=(--env "$name")

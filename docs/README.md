@@ -104,7 +104,8 @@ GIT=commit bin/run claude
                    # and pull
 CLAUDE_CODE_OAUTH_TOKEN=... bin/run claude
                    # ...signed in to that account instead of the shared one;
-                   # CODEX_API_KEY for codex; see Its own sign-in
+                   # CODEX_API_KEY for `codex exec` alone, not for codex's
+                   # own screen; see Its own sign-in
 
 bin/usage          # rate-limit usage of the agents the box is logged in to,
                    # Claude and GPT side by side; reads data/, starts nothing
@@ -174,8 +175,13 @@ outside the box. For example, with the variable already exported:
 
 ```bash
 bin/run-fresh claude    # uses CLAUDE_CODE_OAUTH_TOKEN
-bin/run-fresh codex     # uses CODEX_API_KEY
+bin/run-fresh codex exec --skip-git-repo-check 'Reply with OK.'
+                        # uses CODEX_API_KEY
 ```
+
+`bin/run-fresh codex`, Codex's own screen, does not read `CODEX_API_KEY` and
+shows its sign-in menu: [Its own sign-in](#its-own-sign-in) has the command
+that signs it in with the key first.
 
 Unset or empty credentials leave the fresh box signed out. To test a token
 entered inside the box, unset any exported credentials first:
@@ -273,12 +279,35 @@ keeps renewing itself:
 | variable | for | |
 |---|---|---|
 | `CLAUDE_CODE_OAUTH_TOKEN` | `claude` | the long-lived token of `claude setup-token`; `claude auth status` inside says `oauth_token` |
-| `CODEX_API_KEY` | `codex` | an API key; `codex doctor` inside says auth mode `api_key` |
-| `OPENAI_API_KEY` | other tools | passed as it is; codex 0.163 does not sign in with it, alone or beside the shared sign-in |
+| `CODEX_API_KEY` | `codex exec` | an API key; `codex exec` sends it, beside the shared sign-in too. Codex's own screen never reads it: see below |
+| `OPENAI_API_KEY` | other tools | passed as it is; codex 0.167 does not sign in with it, alone or beside the shared sign-in |
 
 Unset or empty, the agent uses the shared sign-in in ordinary mode; a fresh
 box has no shared sign-in. `bin/self-check` says which are set, never their
 values.
+
+Codex's own screen, `codex` with no `exec`, signs in from
+`$CODEX_HOME/auth.json` and from nothing else (codex 0.167). With only
+`CODEX_API_KEY` set, `codex` in an ordinary box goes on working on the shared
+sign-in, and in a fresh box it shows its sign-in menu. `codex doctor` says
+auth mode `api_key` in both, which is what `codex exec` would use;
+`codex login status`, and `/status` on the screen, say what the screen runs
+on. To put the screen on the key, sign it in with the key first, in a folder
+of its own:
+
+```bash
+CODEX_API_KEY=... bin/run sh -c '
+    export CODEX_HOME=$HOME/.codex-key && mkdir -p "$CODEX_HOME" &&
+    printenv CODEX_API_KEY | codex login --with-api-key && exec codex'
+```
+
+`codex login` writes the key into `$CODEX_HOME/auth.json`. Without a
+`CODEX_HOME` of its own that file is the shared sign-in,
+`data/codex/auth.json`, and the key takes its place for every box.
+`~/.codex-key` is in the box's own home: the key goes with the box, and this
+Codex starts with none of the shared one's settings or history. A folder
+under `~/.codex` is kept in `data/codex` instead, the key in it too. The same
+command works with `bin/run-fresh`.
 
 `--shm-size=2g` is set for Chrome/Playwright. `$PWD/.git`, `$PWD/.env`,
 `~/repos` and `~/sockets` are mounted only when they exist, so a bind mount

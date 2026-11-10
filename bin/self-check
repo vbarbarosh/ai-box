@@ -379,15 +379,20 @@ esac
 
 echo
 echo "sign-ins bin/run will pass ${dim}(by name, never written to $short)${reset}"
-for name in CLAUDE_CODE_OAUTH_TOKEN CODEX_API_KEY; do
-    if test -n "${!name:-}"; then
-        ok_report "$name" "set: the box signs in with it"
-    else
-        ok_report "$name" "not set: the shared sign-in"
-    fi
-done
+if test -n "${CLAUDE_CODE_OAUTH_TOKEN:-}"; then
+    ok_report CLAUDE_CODE_OAUTH_TOKEN "set: claude signs in with it"
+else
+    ok_report CLAUDE_CODE_OAUTH_TOKEN "not set: the shared sign-in"
+fi
+# Codex reads CODEX_API_KEY in `codex exec` alone (0.167): its own screen
+# signs in from $CODEX_HOME/auth.json, whatever the variable says.
+if test -n "${CODEX_API_KEY:-}"; then
+    ok_report CODEX_API_KEY "set: codex exec signs in with it; codex's own screen does not"
+else
+    ok_report CODEX_API_KEY "not set: the shared sign-in"
+fi
 if test -n "${OPENAI_API_KEY:-}"; then
-    ok_report OPENAI_API_KEY "set: passed in; codex signs in with CODEX_API_KEY"
+    ok_report OPENAI_API_KEY "set: for other tools; codex does not sign in with it"
 else
     ok_report OPENAI_API_KEY "not set"
 fi
