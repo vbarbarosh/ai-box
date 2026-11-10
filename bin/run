@@ -1079,9 +1079,55 @@ box=(podman run --rm -i "${tty[@]}" \
 # command as it runs, each argument quoted, so a box can be told apart from
 # the next after its terminal is gone. A log that cannot be written is a
 # warning: it must not keep you from your agents.
+#
+# run.log holds the current month. At the first start of a month the lines of
+# the months before leave it, each month to its own run-<year>-<month>.log
+# beside it; bin/build removes those older than three months. One start at a
+# time, by a lock on the folder, so a line is in one file: never in two, never
+# in none. Where the lines cannot be moved they stay, and the start goes on.
 run_log=$data/logs/run.log
 run_line="[$(date '+%F %T %Z')]$(printf ' %q' "${box[@]}")"
-if ! { mkdir -p "$data/logs" && echo "$run_line" >> "$run_log"; } 2>/dev/null; then
+
+# run_log_split <month>: the lines of other months leave run.log, in the
+# order they have. A line with no date goes with the line before it.
+run_log_split () {
+    local month=$1
+    local first_month
+    local split_dir
+    local part
+    first_month=$(head -c 8 "$run_log" 2>/dev/null) || return 0
+    first_month=${first_month#\[}
+    case "$first_month" in
+        "$month") return 0 ;;
+        [0-9][0-9][0-9][0-9]-[0-9][0-9]) ;;
+        *) return 0 ;;
+    esac
+    split_dir=$(mktemp -d "$data/logs/.split.XXXXXX") || return 0
+    if awk -v month="$month" -v dir="$split_dir" '
+        /^\[[0-9][0-9][0-9][0-9]-[0-9][0-9]-/ { line_month = substr($0, 2, 7) }
+        line_month == month { print > (dir "/run.log"); next }
+        { print > (dir "/run-" line_month ".log") }
+    ' "$run_log"; then
+        for part in "$split_dir"/run-*.log; do
+            test -f "$part" || continue
+            cat "$part" >> "$data/logs/${part##*/}" || { rm -rf "$split_dir"; return 0; }
+        done
+        if test -f "$split_dir/run.log"; then
+            mv -f "$split_dir/run.log" "$run_log"
+        else
+            : > "$run_log"
+        fi
+    fi
+    rm -rf "$split_dir"
+}
+
+if ! {
+    mkdir -p "$data/logs" && (
+        flock -w 5 9 2>/dev/null || true
+        run_log_split "$(date +%Y-%m)" || true
+        echo "$run_line" >> "$run_log"
+    ) 9< "$data/logs"
+} 2>/dev/null; then
     echo "warning: could not write $run_log" >&2
 fi
 

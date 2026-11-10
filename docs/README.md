@@ -359,12 +359,19 @@ data/codex/   data/codex.json
 data/images/                       shared image store, for inner docker run
 data/extras/                       browsers, whisper model, Chrome, agent CLIs
 data/refresh                       the ISO week of the last image build
-data/logs/                         each build's output; run.log, every bin/run's podman command
+data/logs/                         each build's output; run.log, every bin/run's podman command;
+                                   three months of both are kept
 ```
 
 The names lose their leading dots on this side of the mount -- nothing here is
 hidden from the person who owns it, and `ls data/` should show what the box is
 keeping. They arrive as `~/.claude` and `~/.codex` inside the box.
+
+`data/logs` keeps three months, this one and the two before it. `run.log`
+holds the current month: at the first start of a month `bin/run` moves the
+lines of the months before to `run-<year>-<month>.log`, a file for each. A
+build removes the build logs and the months that are older, by the month in
+their names; nothing else in the folder is touched.
 
 This is not an app you install once. You pull the repo and rebuild it, often
 more than once a day, so its state belongs beside the tree it was built from:

@@ -11,7 +11,8 @@ scriptname=`basename $script`
 usage_print () {
     echo "usage: $scriptname"
     echo "Builds the image (tag: ai-box), fills data/extras and runs self-check --deep;"
-    echo "its whole output also goes to data/logs/build-<time>.log."
+    echo "its whole output also goes to data/logs/build-<time>.log. The logs there"
+    echo "that are older than three months are removed."
 }
 
 # Before the log and the trap: asking for the usage starts no build.
@@ -51,6 +52,36 @@ mkdir -p data/logs
 log=$PWD/data/logs/build-`date +%Y%m%d_%H%M%S`.log
 exec > >(tee -a $log) 2>&1
 echo "$scriptname: started `date '+%F %T %Z'`; whole output in $log"
+
+# data/logs keeps three months: this one and the two before it. The build
+# logs and the months of run.log (bin/run gives each month a file of its own)
+# that are older go here, by the month in their names. Nothing else in the
+# folder is touched, and a link or a folder of such a name is left alone.
+logs_trim () {
+    local oldest_month
+    local file
+    local name
+    local month
+    local removed_count=0
+    oldest_month=$(date -d "$(date +%Y-%m-01) -2 months" +%Y%m)
+    for file in data/logs/build-*.log data/logs/run-*.log; do
+        name=${file##*/}
+        case "$name" in
+            build-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]_[0-9][0-9][0-9][0-9][0-9][0-9].log) month=${name:6:6} ;;
+            run-[0-9][0-9][0-9][0-9]-[0-9][0-9].log) month=${name:4:4}${name:9:2} ;;
+            *) continue ;;
+        esac
+        if test -f "$file" && ! test -L "$file" && test "$month" -lt "$oldest_month"; then
+            if rm -f -- "$file"; then
+                removed_count=$((removed_count + 1))
+            fi
+        fi
+    done
+    if test "$removed_count" -gt 0; then
+        echo "$scriptname: removed $removed_count logs older than three months from data/logs"
+    fi
+}
+logs_trim || true
 
 EXIT_MESSAGE="${RED}bin/build failed; whole output in $log${RESET}"
 
