@@ -379,17 +379,24 @@ esac
 
 echo
 echo "sign-ins bin/run will pass ${dim}(by name, never written to $short)${reset}"
+# Without its variable an agent works on the shared sign-in; a fresh box has
+# none and starts signed out.
+if test -n "${FRESH:-}"; then
+    unset_detail="not set: signed out; a fresh box has no shared sign-in"
+else
+    unset_detail="not set: the shared sign-in"
+fi
 if test -n "${CLAUDE_CODE_OAUTH_TOKEN:-}"; then
     ok_report CLAUDE_CODE_OAUTH_TOKEN "set: claude signs in with it"
 else
-    ok_report CLAUDE_CODE_OAUTH_TOKEN "not set: the shared sign-in"
+    ok_report CLAUDE_CODE_OAUTH_TOKEN "$unset_detail"
 fi
 # Codex reads CODEX_API_KEY in `codex exec` alone (0.167): its own screen
 # signs in from $CODEX_HOME/auth.json, whatever the variable says.
 if test -n "${CODEX_API_KEY:-}"; then
     ok_report CODEX_API_KEY "set: codex exec signs in with it; codex's own screen does not"
 else
-    ok_report CODEX_API_KEY "not set: the shared sign-in"
+    ok_report CODEX_API_KEY "$unset_detail"
 fi
 if test -n "${OPENAI_API_KEY:-}"; then
     ok_report OPENAI_API_KEY "set: for other tools; codex does not sign in with it"
