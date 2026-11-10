@@ -903,7 +903,8 @@ done
 # controller is delegated to your session (systemd does that by default on
 # current Ubuntu; bin/self-check reports it). Override with an environment
 # variable; 0 means no limit. A limit whose controller is not delegated is
-# left out, and said: the box starts all the same.
+# left out without a word, and the box starts all the same: bin/self-check
+# says which are delegated, and its deep check reads the limits in a box.
 #
 #   PIDS    default 4096
 #   MEMORY  default three quarters of the host's RAM, swap included
@@ -915,34 +916,17 @@ pids=${PIDS:-4096}
 memory=${MEMORY:-$(awk '/^MemTotal:/ { printf "%dm", $2 * 3 / 4 / 1024 }' /proc/meminfo)}
 cpus=${CPUS:-0}
 
-limits_dropped=()
-if test "$pids" != 0; then
-    if is_delegated pids; then
-        opts+=(--pids-limit "$pids")
-    else
-        limits_dropped+=(PIDS)
-    fi
+if test "$pids" != 0 && is_delegated pids; then
+    opts+=(--pids-limit "$pids")
 fi
-if test "$memory" != 0; then
-    if is_delegated memory; then
-        # --memory alone lets the box take as much again in swap: Podman sets
-        # the two together to twice the limit. The same value for both is
-        # all of it, with no swap past it.
-        opts+=(--memory "$memory" --memory-swap "$memory")
-    else
-        limits_dropped+=(MEMORY)
-    fi
+if test "$memory" != 0 && is_delegated memory; then
+    # --memory alone lets the box take as much again in swap: Podman sets the
+    # two together to twice the limit. The same value for both is all of it,
+    # with no swap past it.
+    opts+=(--memory "$memory" --memory-swap "$memory")
 fi
-if test "$cpus" != 0; then
-    if is_delegated cpu; then
-        opts+=(--cpus "$cpus")
-    else
-        limits_dropped+=(CPUS)
-    fi
-fi
-if test "${#limits_dropped[@]}" -gt 0; then
-    limits_dropped_text=$(printf '%s, ' "${limits_dropped[@]}")
-    echo "warning: the box runs with no limit on ${limits_dropped_text%, }: the cgroup controller is not delegated to your session (bin/self-check says which are)" >&2
+if test "$cpus" != 0 && is_delegated cpu; then
+    opts+=(--cpus "$cpus")
 fi
 
 # A real init as PID 1: it reaps the orphans that daemonized services and

@@ -440,9 +440,10 @@ reports which):
 | `CPUS` | unlimited | `--cpus` |
 
 Set one to `0` to lift it. A limit whose controller is not delegated is
-left out: `bin/run` says so in one line as it starts, and the box starts all
-the same. `bin/self-check --deep` reads the limits from inside a box: each
-delegated one must have arrived, the memory one with no swap past it.
+left out without a word, and the box starts all the same: `bin/self-check`
+says which are delegated. `bin/self-check --deep` reads the limits from
+inside a box: each delegated one must have arrived, the memory one with no
+swap past it.
 
 `bin/run` also puts a real init at PID 1 (`--init`, Podman's own
 `catatonit`) whenever the host has it, so orphaned processes are reaped and
