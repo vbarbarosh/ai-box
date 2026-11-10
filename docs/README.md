@@ -68,8 +68,9 @@ podman rm -af
 ```bash
 bin/configure      # install what the host is missing (idempotent)
 bin/self-check     # report what is here and what is not; --deep also starts
-                   # boxes: a container inside one, and the boundary tried
-                   # from inside (.git, the masks, the relay, the end)
+                   # boxes: a container inside one, the boundary tried from
+                   # inside (.git, the masks, the relay, the end), and the
+                   # image's tools started as the box's user
 bin/build          # build the image (tag: ai-box), fill data/extras, check it
                    # with self-check --deep; a build that does not finish
                    # leaves the previous image as it was
@@ -622,7 +623,10 @@ upstream for the current release at build time, so two builds a week apart
 differ. Each layer records what it resolved in `/etc/ai-box/versions`;
 `extras-fill` records Chrome, the browsers, the model and the CLIs in
 `/opt/extras/versions`, in the same format. `bin/self-check --versions` prints
-both. Every download the Dockerfile and the fill make themselves is
+both. `bin/self-check --deep` starts every tool of the first file in a box, as
+the box's user, for the build tries most of them as root: a tool recorded
+there has its probe in `bin/self-check`, or the check says which has none.
+Every download the Dockerfile and the fill make themselves is
 checksum-verified (Node, Composer, yt-dlp, oxipng, ImageMagick, Chrome);
 phpredis, Playwright's browsers, Cypress and the model come by their own
 tools. The checksum comes from the same publisher as the artifact: that guards against corruption and torn releases, not against a

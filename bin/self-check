@@ -16,12 +16,13 @@ PURPLE="\e[35m" CYAN="\e[36m" WHITE="\e[37m" RESET="\e[0m"
 # whatever this reports.
 #
 #   bin/self-check            checks the host
-#   bin/self-check --deep     also starts the box and runs a container inside it
+#   bin/self-check --deep     also starts boxes: a container inside one, the
+#                             boundary, the image's tools as the box's user
 #   bin/self-check --versions also lists what the image was built with
 
 usage_print () {
     echo "usage: $scriptname              report what the host has and lacks"
-    echo "       $scriptname --deep       also start boxes: a container inside one, and the boundary"
+    echo "       $scriptname --deep       also start boxes: a container inside one, the boundary, the tools"
     echo "       $scriptname --versions   also list what the image was built with"
     echo "Exits non-zero when a required item is missing."
 }
@@ -666,6 +667,89 @@ EOF
             ok_report "the box ends with bin/run" "SIGTERM to bin/run stopped it"
         else
             missing_report required "the box ends with bin/run" "seen: ${is_box_seen:-no}, gone: ${is_box_gone:-no}"
+        fi
+
+        # The build tries its tools as root, and root walks into a folder
+        # closed to everyone else: an image whose ImageMagick no box could
+        # start passed it. Each is tried again here, in a box, as its user:
+        # what the package layer tries, then a probe for every tool the
+        # image records in /etc/ai-box/versions. A recorded tool with no
+        # probe is said, so one added to the Dockerfile gets its probe too.
+        if tools_line=$(cd "$deep_dir/nested" && env -u GIT -u FRESH -u MASK -u READONLY -u AGENTDIR \
+            REPOS_PICK= SOCKETS= AGENTS= \
+            timeout 150 "$scriptdir/run" bash -seu 2>&1 <<'EOF'
+export LC_ALL=C
+tools_count=0
+failures=()
+
+# tool_try <command> [argument...]: a tool that does not start is kept with
+# the first line it said. env starts it, so the reason is the system's own,
+# "magick: Permission denied", where bash says "command not found".
+tool_try () {
+    local said
+    local status=0
+    tools_count=$((tools_count + 1))
+    said=$(env "$@" 2>&1 < /dev/null) || status=$?
+    if test "$status" -ne 0; then
+        said=$(echo "$said" | head -n 1 | sed "s/^env: //; s/'//g" | cut -c1-60)
+        failures+=("${said:-$1: exit $status}")
+    fi
+}
+
+for name in php tesseract zbarimg optipng pngquant parallel bc; do
+    tool_try "$name" --version
+done
+for name in pngcrush cwebp cjpeg djpeg jpegtran; do
+    tool_try "$name" -version
+done
+tool_try zopflipng -h
+tool_try exiftran -h
+tool_try tmux -V
+tool_try ping -V
+tool_try ts
+tool_try fc-match Inter
+
+while IFS='=' read -r name _; do
+    case "$name" in
+        ''|'#'*|ubuntu_refresh) ;;
+        node) tool_try node --version; tool_try npm --version ;;
+        playwright) tool_try playwright --version ;;
+        puppeteer) tool_try node -e 'require("puppeteer/package.json")' ;;
+        cypress) tool_try cypress version ;;
+        opencv-python-headless) tool_try python3 -c 'import cv2, numpy' ;;
+        zxing) tool_try node -e 'require("@zxing/library")' ;;
+        jsqr) tool_try node -e 'require("jsqr")' ;;
+        tesseract.js) tool_try node -e 'require("tesseract.js")' ;;
+        msedge-tts) tool_try node -e 'require("msedge-tts")' ;;
+        faster-whisper) tool_try python3 -c 'import faster_whisper' ;;
+        phpredis) tool_try php -r 'exit(extension_loaded("redis") ? 0 : 1);' ;;
+        composer) tool_try composer --version ;;
+        yt-dlp) tool_try yt-dlp --version ;;
+        oxipng) tool_try oxipng --version ;;
+        imagemagick)
+            for tool in magick convert identify mogrify composite montage compare; do
+                tool_try "$tool" -version
+            done ;;
+        podman) tool_try podman --version; tool_try docker --version ;;
+        podman-compose) tool_try podman-compose --version ;;
+        *) failures+=("$name: recorded in the image, no probe in bin/self-check") ;;
+    esac
+done < /etc/ai-box/versions
+
+if test "${#failures[@]}" -gt 1; then
+    echo "${failures[0]} (and $((${#failures[@]} - 1)) more)"
+    exit 1
+fi
+if test "${#failures[@]}" -gt 0; then
+    echo "${failures[0]}"
+    exit 1
+fi
+echo "tools-ok $tools_count of $tools_count start"
+EOF
+        ) && tools_last=$(echo "$tools_line" | tr -d '\r' | tail -1) && test "${tools_last%% *}" = tools-ok; then
+            ok_report "tools as the box's user" "${tools_last#tools-ok }"
+        else
+            missing_report required "tools as the box's user" "$(echo "$tools_line" | tr -d '\r' | tail -1)"
         fi
     else
         missing_report optional "container inside box" "no image yet; bin/build"
