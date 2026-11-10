@@ -209,17 +209,24 @@ See [the official Codex login reference](https://learn.chatgpt.com/docs/develope
 | `$AGENTDIR` → `/agentdir` | rw | an agent's folder of Visual Agency, when `AGENTDIR` is set |
 | `$AGENTS` → `/agents` | ro | the app's folder of agents, each by its id, when `AGENTS` is set: one agent reads the others' conversations, plans and documents and changes none. Its own folder in it stays read-write at `/agentdir` and is read-only at `/agents/<id>` |
 | `$READONLY` | ro | space-separated paths in the box, each a folder under `/agentdir` or `/app`, mounted again read-only after the other bind mounts |
-| `data/claude{,.json}` → `~/.claude{,.json}` | rw | so the agent keeps its login and history |
+| `data/claude{,.json}` → `~/.claude{,.json}` | rw | so the agent keeps its login and history; one folder for every box, whatever its project |
 | `data/codex{,.json}` → `~/.codex{,.json}` | rw | same |
 | `data/images` → `/var/lib/shared` | rw | the shared image store, when it exists |
 | `data/extras` → `/opt/extras` | overlay | browsers, whisper model, Chrome, `claude`, `codex`; writes end with the box. See [Browsers, model and agent CLIs](#browsers-model-and-agent-clis) |
 | sockets → `/run/git` | ro | with `GIT=commit`: `commit`, `push` and `pull` ask the host |
 
-Agent state is the box's own, kept out of your home dotfiles: the box logs in,
-keeps its history and rewrites its config without touching the `~/.claude` or
-`~/.codex` you use outside it. `bin/run` creates the two directories and the two JSON
-files on first run, because a bind mount whose source does not exist would
-otherwise be created as a directory and the agents want files there.
+Agent state is kept out of your home dotfiles: a box logs in, keeps its
+history and rewrites its config without touching the `~/.claude` or
+`~/.codex` you use outside it. It is one state for every box, whatever
+project the box was started on, and every project is at `/app`, so the
+agents keep them as one: a box reads and rewrites the saved sessions, the
+notes and the settings of all the others, and a command written into the
+settings runs in every later box. ai-box mounts the folder and decides
+nothing more about it; a box that must see none of it is started with
+`FRESH=app` and signs in by a token ([Its own sign-in](#its-own-sign-in)).
+`bin/run` creates the two directories and the two JSON files on first run,
+because a bind mount whose source does not exist would otherwise be created
+as a directory and the agents want files there.
 
 Those paths are relative to **this repo**, not to the directory you run from --
 see [Where the box keeps its state](#where-the-box-keeps-its-state).
@@ -336,7 +343,7 @@ What it needs:
 Everything the box keeps between runs lives in this repo, under `data/`:
 
 ```
-data/claude/  data/claude.json     the agents' state and logins
+data/claude/  data/claude.json     the agents' state and logins, one for all boxes
 data/codex/   data/codex.json
 data/images/                       shared image store, for inner docker run
 data/extras/                       browsers, whisper model, Chrome, agent CLIs
