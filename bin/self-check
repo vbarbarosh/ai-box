@@ -738,6 +738,7 @@ while IFS='=' read -r name _; do
         composer) tool_try composer --version ;;
         yt-dlp) tool_try yt-dlp --version ;;
         oxipng) tool_try oxipng --version ;;
+        tailcat) tool_try tailcat version ;;
         imagemagick)
             for tool in magick convert identify mogrify composite montage compare; do
                 tool_try "$tool" -version

@@ -109,10 +109,11 @@ exit_report () {
 }
 trap exit_report EXIT
 
-# Every binary the Dockerfile fetches outside apt -- Node, yt-dlp,
-# oxipng, ImageMagick, Chrome -- is the x86_64 build. On another architecture
-# the build would run the whole package layer and then fail at the first
-# checksum with a message that does not say why. Say why here instead.
+# Every binary the Dockerfile fetches outside apt -- Node, yt-dlp, oxipng,
+# tailcat, ImageMagick, Chrome -- is the x86_64 build. On another
+# architecture the build would run the whole package layer and then fail at
+# the first checksum with a message that does not say why. Say why here
+# instead.
 if test "$(uname -m)" != x86_64; then
     echo "error: the image is x86_64-only and this host is $(uname -m)." >&2
     exit 1

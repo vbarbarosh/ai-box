@@ -304,6 +304,27 @@ RUN oxipng_dir="oxipng-${OXIPNG_VERSION}-x86_64-unknown-linux-musl" \
     && oxipng --version \
     && echo "oxipng=${OXIPNG_VERSION}" >> /etc/ai-box/versions
 
+# tailcat, a netcat over Tailscale's relays, is absent from the Ubuntu archive,
+# and its snap is a repackaging that needs snapd, which no container runs: the
+# static binary comes from Tailscale's own release, its digest asked of
+# GitHub's API as oxipng's above. It is the newest release at each build, not
+# a pinned one: the snap on a host updates itself, and a box held back would
+# fall behind the tailcat it talks to. The tarball keeps its builder's uid,
+# 1001, and tar run as root would give the binary to that uid.
+RUN { curl -fsSL https://api.github.com/repos/tailscale/tailcat/releases/latest -o /tmp/tailcat-release.json \
+        || { echo "error: GitHub's API gave no newest tailcat release: no network, or its limit of 60 requests an hour for an address with no token; wait and build again" >&2; exit 1; }; } \
+    && tailcat_tag="$(jq -r '.tag_name // empty' /tmp/tailcat-release.json)" \
+    && tailcat_version="${tailcat_tag#v}" \
+    && tailcat_asset="tailcat_${tailcat_version}_linux_amd64.tar.gz" \
+    && tailcat_digest="$(jq -r --arg name "${tailcat_asset}" '.assets[] | select(.name == $name) | .digest // empty' /tmp/tailcat-release.json)" \
+    && { test -n "${tailcat_digest}" || { echo "error: the newest tailcat release, ${tailcat_tag}, has no ${tailcat_asset} with a digest on GitHub" >&2; exit 1; }; } \
+    && curl -fsSL "https://github.com/tailscale/tailcat/releases/download/${tailcat_tag}/${tailcat_asset}" -o /tmp/tailcat.tar.gz \
+    && echo "${tailcat_digest#sha256:}  /tmp/tailcat.tar.gz" | sha256sum -c - \
+    && tar --no-same-owner -xzf /tmp/tailcat.tar.gz -C /usr/local/bin tailcat \
+    && rm /tmp/tailcat-release.json /tmp/tailcat.tar.gz \
+    && setpriv --reuid=ubuntu --regid=ubuntu --init-groups tailcat version \
+    && echo "tailcat=${tailcat_version}" >> /etc/ai-box/versions
+
 # The only ImageMagick in the image, and it is 7. Ubuntu 24.04 ships 6, which
 # answers to `convert` and has no `magick` at all -- so having both meant two
 # ImageMagicks of different major versions, and which one you got depended on

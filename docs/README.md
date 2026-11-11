@@ -679,7 +679,7 @@ it, so a bump rebuilds the image from that step on and leaves the package
 layer alone. They move only by hand: nothing bumps them and nothing reminds
 of them. A seventh is in the Dockerfile itself: the older Playwright whose
 Chromium is kept for projects that pin it (`PLAYWRIGHT_PINNED_VERSION`). Everything else -- the Python and npm libraries,
-phpredis, Composer, yt-dlp, Chrome, and the two agent CLIs -- asks its
+phpredis, Composer, yt-dlp, tailcat, Chrome, and the two agent CLIs -- asks its
 upstream for the current release at build time, so two builds a week apart
 differ. Each layer records what it resolved in `/etc/ai-box/versions`;
 `extras-fill` records Chrome, the browsers, the model and the CLIs in
@@ -688,7 +688,7 @@ both. `bin/self-check --deep` starts every tool of the first file in a box, as
 the box's user, for the build tries most of them as root: a tool recorded
 there has its probe in `bin/self-check`, or the check says which has none.
 Every download the Dockerfile and the fill make themselves is
-checksum-verified (Node, Composer, yt-dlp, oxipng, ImageMagick, Chrome);
+checksum-verified (Node, Composer, yt-dlp, oxipng, tailcat, ImageMagick, Chrome);
 phpredis, Playwright's browsers, Cypress and the model come by their own
 tools. The checksum comes from the same publisher as the artifact: that guards against corruption and torn releases, not against a
 compromised upstream. Chrome's goes one step further: its package list is
