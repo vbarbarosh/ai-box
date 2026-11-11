@@ -150,11 +150,14 @@ RUN install -d -o ubuntu -g ubuntu -m 0755 /etc/ai-box \
 
 # The release directory carries SHASUMS256.txt for every artifact in it, so
 # the tarball is checked against its own publisher before it is unpacked.
+# The tarball keeps the uid that packed it, 1001, and tar run as root would
+# give that uid /usr/local/bin, lib, include and share with everything Node
+# puts in them: --no-same-owner leaves them root's.
 ARG NODE_VERSION=24.22.2
 RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" -o /tmp/SHASUMS256.txt \
     && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" -o "/tmp/node-v${NODE_VERSION}-linux-x64.tar.xz" \
     && (cd /tmp && grep "  node-v${NODE_VERSION}-linux-x64.tar.xz$" /tmp/SHASUMS256.txt | sha256sum -c -) \
-    && tar -xJf "/tmp/node-v${NODE_VERSION}-linux-x64.tar.xz" -C /usr/local --strip-components=1 \
+    && tar --no-same-owner -xJf "/tmp/node-v${NODE_VERSION}-linux-x64.tar.xz" -C /usr/local --strip-components=1 \
     && rm "/tmp/node-v${NODE_VERSION}-linux-x64.tar.xz" /tmp/SHASUMS256.txt \
     && node --version \
     && npm --version \
@@ -292,14 +295,15 @@ RUN curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-25
 # release. GitHub publishes each asset's digest next to the download, so the
 # tarball is verified without a checksum copied into this file. The digest is
 # asked of GitHub's API, which answers an address with no token 60 times an
-# hour; a refusal leaves it empty, and the step says so.
+# hour; a refusal leaves it empty, and the step says so. Its tarball, too,
+# keeps the uid that packed it, 1001: --no-same-owner, as for Node.
 ARG OXIPNG_VERSION=10.2.1
 RUN oxipng_dir="oxipng-${OXIPNG_VERSION}-x86_64-unknown-linux-musl" \
     && oxipng_digest="$(curl -fsSL "https://api.github.com/repos/oxipng/oxipng/releases/tags/v${OXIPNG_VERSION}" | jq -r --arg name "${oxipng_dir}.tar.gz" '.assets[] | select(.name == $name) | .digest // empty')" \
     && { test -n "${oxipng_digest}" || { echo "error: GitHub's API gave no digest for ${oxipng_dir}.tar.gz: no such release, or its limit of 60 requests an hour for an address with no token; wait and build again" >&2; exit 1; }; } \
     && curl -fsSL "https://github.com/oxipng/oxipng/releases/download/v${OXIPNG_VERSION}/${oxipng_dir}.tar.gz" -o /tmp/oxipng.tar.gz \
     && echo "${oxipng_digest#sha256:}  /tmp/oxipng.tar.gz" | sha256sum -c - \
-    && tar -xzf /tmp/oxipng.tar.gz -C /usr/local/bin --strip-components=1 "${oxipng_dir}/oxipng" \
+    && tar --no-same-owner -xzf /tmp/oxipng.tar.gz -C /usr/local/bin --strip-components=1 "${oxipng_dir}/oxipng" \
     && rm /tmp/oxipng.tar.gz \
     && oxipng --version \
     && echo "oxipng=${OXIPNG_VERSION}" >> /etc/ai-box/versions
