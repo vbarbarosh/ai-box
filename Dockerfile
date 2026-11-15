@@ -9,7 +9,7 @@
 # appears mid-week rebuilds nothing until the token advances.
 # =============================================================================
 
-FROM ubuntu:24.04 AS runtime
+FROM ubuntu:26.04 AS runtime
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG UBUNTU_REFRESH=manual
@@ -208,10 +208,10 @@ RUN printf '\n%s\n%s\n' \
         'export PATH="$HOME/bin:$HOME/.local/bin:$PATH"' \
         >> "$HOME/.bashrc"
 
-# OpenCV comes from pip, not apt. noble's python3-opencv is built against
-# numpy 1, and the numpy 2 that faster-whisper's layer puts into ~/.local
-# would shadow the apt one and break it; the wheel carries a numpy it agrees
-# with. Headless because nothing here opens a window.
+# OpenCV comes from pip, not apt. resolute's python3-opencv is 4.10, a major
+# behind, and the numpy that faster-whisper's layer puts into ~/.local would
+# shadow the apt one; the wheel carries a numpy it agrees with. Headless
+# because nothing here opens a window.
 RUN --mount=type=cache,target=/home/ubuntu/.cache/pip,uid=1000,gid=1000 \
     opencv_version="$(curl -fsSL https://pypi.org/pypi/opencv-python-headless/json | jq -r .info.version)" \
     && python3 -m pip install --user --break-system-packages \
@@ -329,10 +329,10 @@ RUN { curl -fsSL https://api.github.com/repos/tailscale/tailcat/releases/latest 
     && setpriv --reuid=ubuntu --regid=ubuntu --init-groups tailcat version \
     && echo "tailcat=${tailcat_version}" >> /etc/ai-box/versions
 
-# The only ImageMagick in the image, and it is 7. Ubuntu 24.04 ships 6, which
-# answers to `convert` and has no `magick` at all -- so having both meant two
-# ImageMagicks of different major versions, and which one you got depended on
-# which name you happened to type. The apt package is gone; the AppImage is
+# The only ImageMagick in the image is ImageMagick's own AppImage. Ubuntu
+# 26.04 ships 7.1.2-18, 17 releases behind it; 24.04 shipped 6, which answers
+# to `convert` and has no `magick` at all, so having both meant which one you
+# got depended on which name you typed. No apt package; the AppImage is
 # unpacked because the container has no FUSE.
 #
 # AppRun dispatches on the symlink name only under the FUSE runtime, which

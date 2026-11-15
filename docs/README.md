@@ -553,10 +553,9 @@ other usual answer, and that is worse — the containers are then siblings on th
 host, they outlive the environment, and `--rm` stops meaning anything.
 
 The environment now runs under **rootless Podman** and the engine *inside* it is
-Podman too -- Ubuntu 24.04's `podman` 4.9 and `podman-compose` 1.0.6, not the
-5.x on the host, so do not expect 5.x-only features or the newest compose-spec
-keys inside. `podman-docker` provides a real `docker` command, so nothing you
-type changes.
+Podman too -- Ubuntu 26.04's `podman` 5.7 and `podman-compose` 1.5.
+`podman-docker` provides a real `docker` command, so nothing you type
+changes.
 
 ## Why this clears every constraint at once
 
