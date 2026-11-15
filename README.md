@@ -10,9 +10,11 @@ An ephemeral environment for coding agents.
 ## Quick start
 
 ```bash
-bin/configure      # install what the host is missing
-bin/build          # build the image and fill data/extras
-bin/run claude     # an agent in a box on the current directory
+bin/configure            # install what the host is missing
+bin/build                # build the image and fill data/extras
+
+alias ai="$PWD/bin/run"  # ai: this bin/run, from any folder
+ai claude                # an agent in a box on the current directory
 ```
 
 ## Documentation
