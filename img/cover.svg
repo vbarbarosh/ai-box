@@ -24,8 +24,14 @@
       <text x="22" y="-5" font-size="14" font-weight="600" letter-spacing="3.2" fill="#C2410C">EPHEMERAL SANDBOX</text>
     </g>
 
-    <text x="0" y="300" font-family="'Ubuntu Sans Mono','Noto Sans Mono',ui-monospace,monospace" font-size="104" font-weight="700" letter-spacing="-3" fill="#1B1A18">ai-box</text>
-    <rect x="4" y="322" width="72" height="5" rx="2.5" fill="#C2410C"/>
+    <svg x="0" y="220" width="82" height="82" viewBox="0 0 32 32">
+      <rect width="32" height="32" rx="7" fill="#0F0F0E"/>
+      <rect x="4.5" y="4.5" width="23" height="23" rx="5" fill="none" stroke="#E8845A" stroke-width="2.4" pathLength="84" stroke-dasharray="4.2 2.8" stroke-dashoffset="-1.4"/>
+      <path d="M10.5 12 l4.5 4 l-4.5 4" fill="none" stroke="#F4F2ED" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M17 20.5 h5" stroke="#F4F2ED" stroke-width="2.4" stroke-linecap="round"/>
+    </svg>
+    <text x="104" y="300" font-family="'Ubuntu Sans Mono','Noto Sans Mono',ui-monospace,monospace" font-size="104" font-weight="700" letter-spacing="-3" fill="#1B1A18">ai-box</text>
+    <rect x="108" y="322" width="72" height="5" rx="2.5" fill="#C2410C"/>
 
     <text x="0" y="392" font-size="27" font-weight="500" fill="#1B1A18" letter-spacing="-0.4">An ephemeral environment for coding agents.</text>
     <text x="0" y="428" font-size="21" font-weight="400" fill="#736E64" letter-spacing="-0.2">Full toolchain in, containers nested inside, nothing left behind.</text>
@@ -92,5 +98,5 @@
   </g>
 
   <!-- prompt line -->
-  <text x="742" y="530" font-family="'Ubuntu Sans Mono','Noto Sans Mono',ui-monospace,monospace" font-size="16" fill="#736E64"><tspan fill="#C2410C">$</tspan> bin/run claude<tspan fill="#1B1A18" font-weight="600">▍</tspan></text>
+  <text x="742" y="530" font-family="'Ubuntu Sans Mono','Noto Sans Mono',ui-monospace,monospace" font-size="16" fill="#736E64"><tspan fill="#C2410C">$</tspan> ai claude<tspan fill="#1B1A18" font-weight="600">▍</tspan></text>
 </svg>

@@ -1,21 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" font-family="Inter, 'Helvetica Neue', Arial, sans-serif">
   <defs>
     <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
-      <circle cx="1.5" cy="1.5" r="1.5" fill="#232320"/>
+      <circle cx="1.5" cy="1.5" r="1.5" fill="#2B323C"/>
     </pattern>
     <linearGradient id="fade" x1="0" y1="0" x2="1" y2="0.6">
-      <stop offset="0" stop-color="#0F0F0E" stop-opacity="0"/>
-      <stop offset="1" stop-color="#0F0F0E" stop-opacity="0.92"/>
+      <stop offset="0" stop-color="#212830" stop-opacity="0"/>
+      <stop offset="1" stop-color="#212830" stop-opacity="0.92"/>
     </linearGradient>
     <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
-      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000000" flood-opacity="0.45"/>
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000000" flood-opacity="0.30"/>
     </filter>
   </defs>
 
-  <rect width="1280" height="640" fill="#0F0F0E"/>
+  <rect width="1280" height="640" fill="#212830"/>
   <rect width="1280" height="640" fill="url(#dots)"/>
   <rect width="1280" height="640" fill="url(#fade)"/>
-  <rect x="0" y="0" width="1280" height="640" fill="none" stroke="#1E1E1C" stroke-width="2"/>
+  <rect x="0" y="0" width="1280" height="640" fill="none" stroke="#212830" stroke-width="2"/>
 
   <!-- ── left: wordmark ───────────────────────────────────────────── -->
   <g transform="translate(88,0)">
@@ -24,23 +24,29 @@
       <text x="22" y="-5" font-size="14" font-weight="600" letter-spacing="3.2" fill="#E8845A">EPHEMERAL SANDBOX</text>
     </g>
 
-    <text x="0" y="300" font-family="'Ubuntu Sans Mono','Noto Sans Mono',ui-monospace,monospace" font-size="104" font-weight="700" letter-spacing="-3" fill="#F4F2ED">ai-box</text>
-    <rect x="4" y="322" width="72" height="5" rx="2.5" fill="#E8845A"/>
+    <svg x="0" y="220" width="82" height="82" viewBox="0 0 32 32">
+      <rect width="32" height="32" rx="7" fill="#0F0F0E"/>
+      <rect x="4.5" y="4.5" width="23" height="23" rx="5" fill="none" stroke="#E8845A" stroke-width="2.4" pathLength="84" stroke-dasharray="4.2 2.8" stroke-dashoffset="-1.4"/>
+      <path d="M10.5 12 l4.5 4 l-4.5 4" fill="none" stroke="#F4F2ED" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M17 20.5 h5" stroke="#F4F2ED" stroke-width="2.4" stroke-linecap="round"/>
+    </svg>
+    <text x="104" y="300" font-family="'Ubuntu Sans Mono','Noto Sans Mono',ui-monospace,monospace" font-size="104" font-weight="700" letter-spacing="-3" fill="#F4F2ED">ai-box</text>
+    <rect x="108" y="322" width="72" height="5" rx="2.5" fill="#E8845A"/>
 
     <text x="0" y="392" font-size="27" font-weight="500" fill="#F4F2ED" letter-spacing="-0.4">An ephemeral environment for coding agents.</text>
-    <text x="0" y="428" font-size="21" font-weight="400" fill="#969084" letter-spacing="-0.2">Full toolchain in, containers nested inside, nothing left behind.</text>
+    <text x="0" y="428" font-size="21" font-weight="400" fill="#9198A1" letter-spacing="-0.2">Full toolchain in, containers nested inside, nothing left behind.</text>
 
-    <g font-family="'Ubuntu Sans Mono','Noto Sans Mono',ui-monospace,monospace" font-size="14.5" fill="#969084">
+    <g font-family="'Ubuntu Sans Mono','Noto Sans Mono',ui-monospace,monospace" font-size="14.5" fill="#9198A1">
       <g transform="translate(0,472)">
-        <rect x="0" y="0" width="162" height="34" rx="17" fill="#181817" stroke="#2C2B27"/>
+        <rect x="0" y="0" width="162" height="34" rx="17" fill="#262C36" stroke="#3D444D"/>
         <text x="20" y="22.5">rootless podman</text>
       </g>
       <g transform="translate(176,472)">
-        <rect x="0" y="0" width="146" height="34" rx="17" fill="#181817" stroke="#2C2B27"/>
+        <rect x="0" y="0" width="146" height="34" rx="17" fill="#262C36" stroke="#3D444D"/>
         <text x="20" y="22.5">docker inside</text>
       </g>
       <g transform="translate(336,472)">
-        <rect x="0" y="0" width="146" height="34" rx="17" fill="#181817" stroke="#2C2B27"/>
+        <rect x="0" y="0" width="146" height="34" rx="17" fill="#262C36" stroke="#3D444D"/>
         <text x="20" y="22.5">opens in 0.3s</text>
       </g>
     </g>
@@ -48,49 +54,49 @@
 
   <!-- ── right: nested boxes ──────────────────────────────────────── -->
   <g transform="translate(742,150)">
-    <rect x="0" y="0" width="420" height="328" rx="20" fill="#131312" stroke="#E8845A" stroke-width="2.5" stroke-dasharray="9 7"/>
+    <rect x="0" y="0" width="420" height="328" rx="20" fill="#1C222B" stroke="#E8845A" stroke-width="2.5" stroke-dasharray="9 7"/>
 
     <!-- label sitting on the border -->
-    <rect x="26" y="-11" width="63" height="22" fill="#0F0F0E"/>
+    <rect x="26" y="-11" width="63" height="22" fill="#212830"/>
     <text x="34" y="5" font-family="'Ubuntu Sans Mono','Noto Sans Mono',ui-monospace,monospace" font-size="14" font-weight="600" fill="#E8845A">ai-box</text>
 
     <!-- inner containers -->
     <g font-family="'Ubuntu Sans Mono','Noto Sans Mono',ui-monospace,monospace" font-size="15" filter="url(#soft)">
       <g>
-        <rect x="32" y="52" width="108" height="88" rx="12" fill="#191918" stroke="#2C2B27"/>
+        <rect x="32" y="52" width="108" height="88" rx="12" fill="#262C36" stroke="#3D444D"/>
         <circle cx="50" cy="74" r="4" fill="#E8845A"/>
         <text x="50" y="112" fill="#F4F2ED">web</text>
-        <text x="50" y="130" font-size="11.5" fill="#969084">:8080</text>
+        <text x="50" y="130" font-size="11.5" fill="#9198A1">:8080</text>
       </g>
       <g>
-        <rect x="156" y="52" width="108" height="88" rx="12" fill="#191918" stroke="#2C2B27"/>
+        <rect x="156" y="52" width="108" height="88" rx="12" fill="#262C36" stroke="#3D444D"/>
         <circle cx="174" cy="74" r="4" fill="#E8845A"/>
         <text x="174" y="112" fill="#F4F2ED">db</text>
-        <text x="174" y="130" font-size="11.5" fill="#969084">:5432</text>
+        <text x="174" y="130" font-size="11.5" fill="#9198A1">:5432</text>
       </g>
       <g>
-        <rect x="280" y="52" width="108" height="88" rx="12" fill="#191918" stroke="#2C2B27"/>
-        <circle cx="298" cy="74" r="4" fill="#969084"/>
+        <rect x="280" y="52" width="108" height="88" rx="12" fill="#262C36" stroke="#3D444D"/>
+        <circle cx="298" cy="74" r="4" fill="#9198A1"/>
         <text x="298" y="112" fill="#F4F2ED">build</text>
-        <text x="298" y="130" font-size="11.5" fill="#969084">layer 7/9</text>
+        <text x="298" y="130" font-size="11.5" fill="#9198A1">layer 7/9</text>
       </g>
     </g>
 
     <!-- mounts -->
     <g font-family="'Ubuntu Sans Mono','Noto Sans Mono',ui-monospace,monospace" font-size="14">
       <g>
-        <rect x="32" y="168" width="356" height="50" rx="12" fill="#191918" stroke="#2C2B27"/>
+        <rect x="32" y="168" width="356" height="50" rx="12" fill="#262C36" stroke="#3D444D"/>
         <text x="50" y="198" fill="#F4F2ED">$PWD → /app</text>
         <text x="370" y="198" text-anchor="end" fill="#E8845A">rw</text>
       </g>
       <g>
-        <rect x="32" y="234" width="356" height="50" rx="12" fill="#191918" stroke="#2C2B27"/>
+        <rect x="32" y="234" width="356" height="50" rx="12" fill="#262C36" stroke="#3D444D"/>
         <text x="50" y="264" fill="#F4F2ED">.env</text>
-        <text x="370" y="264" text-anchor="end" fill="#969084">hidden</text>
+        <text x="370" y="264" text-anchor="end" fill="#9198A1">hidden</text>
       </g>
     </g>
   </g>
 
   <!-- prompt line -->
-  <text x="742" y="530" font-family="'Ubuntu Sans Mono','Noto Sans Mono',ui-monospace,monospace" font-size="16" fill="#969084"><tspan fill="#E8845A">$</tspan> bin/run claude<tspan fill="#F4F2ED" font-weight="600">▍</tspan></text>
+  <text x="742" y="530" font-family="'Ubuntu Sans Mono','Noto Sans Mono',ui-monospace,monospace" font-size="16" fill="#9198A1"><tspan fill="#E8845A">$</tspan> ai claude<tspan fill="#F4F2ED" font-weight="600">▍</tspan></text>
 </svg>
