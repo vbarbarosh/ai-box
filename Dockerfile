@@ -153,7 +153,7 @@ RUN install -d -o ubuntu -g ubuntu -m 0755 /etc/ai-box \
 # The tarball keeps the uid that packed it, 1001, and tar run as root would
 # give that uid /usr/local/bin, lib, include and share with everything Node
 # puts in them: --no-same-owner leaves them root's.
-ARG NODE_VERSION=24.22.2
+ARG NODE_VERSION=26.13.1
 RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" -o /tmp/SHASUMS256.txt \
     && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" -o "/tmp/node-v${NODE_VERSION}-linux-x64.tar.xz" \
     && (cd /tmp && grep "  node-v${NODE_VERSION}-linux-x64.tar.xz$" /tmp/SHASUMS256.txt | sha256sum -c -) \
