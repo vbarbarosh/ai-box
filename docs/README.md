@@ -438,9 +438,9 @@ weekly or less. So they live in `data/extras`, each under its version:
 ```
 data/extras/
   versions          what is here, name=version, as in /etc/ai-box/versions
-  ms-playwright/    chromium-1254/, firefox-1572/, webkit-2388/, and 1.61.1's
+  ms-playwright/    chromium-1255/, firefox-1572/, webkit-2388/, and 1.61.1's
                     chromium-1228/ with its headless shell
-  cypress/          16.2.1/
+  cypress/          16.3.0/
   huggingface/      the whisper model
   chrome/           155.0.8059.39-1/, current -> 155.0.8059.39-1
   npm/              2.1.292-0.160.1/ (claude-code-codex), current -> ...

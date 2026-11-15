@@ -173,9 +173,9 @@ USER ubuntu
 # npm's download cache is retained by BuildKit for later builds but is not
 # committed to the image. The browsers themselves are extras-fill's: neither
 # Puppeteer nor Cypress downloads one here.
-ARG PLAYWRIGHT_VERSION=1.65.0
-ARG PUPPETEER_VERSION=25.16.0
-ARG CYPRESS_VERSION=16.2.1
+ARG PLAYWRIGHT_VERSION=1.65.1
+ARG PUPPETEER_VERSION=25.17.0
+ARG CYPRESS_VERSION=16.3.0
 RUN --mount=type=cache,target=/home/ubuntu/.npm,uid=1000,gid=1000 \
     PUPPETEER_SKIP_DOWNLOAD=true CYPRESS_INSTALL_BINARY=0 npm install --global --no-audit --no-fund \
         "playwright@${PLAYWRIGHT_VERSION}" \
