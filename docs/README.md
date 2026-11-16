@@ -438,8 +438,10 @@ weekly or less. So they live in `data/extras`, each under its version:
 ```
 data/extras/
   versions          what is here, name=version, as in /etc/ai-box/versions
-  ms-playwright/    chromium-1255/, firefox-1572/, webkit-2388/, and 1.61.1's
-                    chromium-1228/ with its headless shell
+  ms-playwright/    ubuntu26.04/, a folder for each Ubuntu release, whose
+                    WebKit is built for it; in it chromium-1255/,
+                    firefox-1572/, webkit-2388/, and 1.61.1's chromium-1228/
+                    with its headless shell
   cypress/          16.3.0/
   huggingface/      the whisper model
   chrome/           155.0.8059.39-1/, current -> 155.0.8059.39-1

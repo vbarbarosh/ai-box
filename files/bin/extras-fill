@@ -50,7 +50,9 @@ case "$keep_days" in
         exit 1 ;;
 esac
 
-export PLAYWRIGHT_BROWSERS_PATH=$root/ms-playwright
+# The browsers go where the image's Playwright looks, the folder of its
+# Ubuntu release (Dockerfile), under $root.
+export PLAYWRIGHT_BROWSERS_PATH=$root/${PLAYWRIGHT_BROWSERS_PATH#/opt/extras/}
 export CYPRESS_CACHE_FOLDER=$root/cypress
 export HF_HOME=$root/huggingface
 
@@ -63,7 +65,7 @@ export PLAYWRIGHT_SKIP_BROWSER_GC=1
 tempdir=`mktemp -d -t tmp.XXXXXXXXXX`
 trap 'rm -rf "$tempdir"; echo -e "$EXIT_MESSAGE"' EXIT
 
-mkdir -p $root/ms-playwright $root/cypress $root/huggingface $root/chrome $root/npm
+mkdir -p $PLAYWRIGHT_BROWSERS_PATH $root/cypress $root/huggingface $root/chrome $root/npm
 
 exec 9> $root/.lock
 if ! flock -n 9; then
@@ -167,9 +169,12 @@ if test -n "${IMAGE_ID:-}" && test "$(head -1 $root/.filled 2>/dev/null)" = "$st
     fi
 fi
 
-# Playwright: one revision per browser for the Playwright in the image.
+# Playwright: one revision per browser for the Playwright in the image, in
+# the folder of its Ubuntu release. The folder is an entry of its own: the
+# next release's image leaves it, and it goes as a whole.
 playwright_version=`node -p "require('playwright/package.json').version"`
 playwright install --no-shell chromium firefox webkit
+wanted+=(${PLAYWRIGHT_BROWSERS_PATH#$root/})
 while read -r path; do
     wanted+=($path)
 done < <(playwright install --dry-run --no-shell chromium firefox webkit | playwright_locations_from_dry_run)
@@ -268,7 +273,7 @@ touch $root/.wanted
     printf "$now %s\n" "${wanted[@]}" "${wanted_previous[@]}"
     cat $root/.wanted
 } | sort -k2,2 -k1,1nr | awk '!seen[$2]++' > $root/.wanted.tmp
-for path in $root/ms-playwright/* $root/cypress/[0-9]* $root/chrome/[0-9]* $root/npm/[0-9]*; do
+for path in $root/ms-playwright/* $root/ms-playwright/ubuntu*/* $root/cypress/[0-9]* $root/chrome/[0-9]* $root/npm/[0-9]*; do
     test -e $path || continue
     awk -v path=${path#$root/} '$2 == path { found=1 } END { exit !found }' $root/.wanted.tmp \
         || echo "$now ${path#$root/}" >> $root/.wanted.tmp

@@ -24,11 +24,14 @@ ARG TZ=Europe/Chisinau
 # The browsers, the speech model and the two agent CLIs are not in the image:
 # they live in data/extras on the host, which bin/build fills (extras-fill)
 # and bin/run mounts at /opt/extras. These variables are how every tool finds
-# them; notes/extras.md has the design.
+# them; notes/extras.md has the design. Playwright's browsers have a folder
+# for each Ubuntu release, the one in the FROM line: its WebKit is built for
+# one release and does not start on another, and Playwright names the
+# folder by revision alone, the same on both.
 ENV NPM_CONFIG_PREFIX=/home/ubuntu/.local \
     NODE_PATH=/home/ubuntu/.local/lib/node_modules \
     PATH=/home/ubuntu/bin:/opt/extras/npm/current/bin:/home/ubuntu/.local/bin:${PATH} \
-    PLAYWRIGHT_BROWSERS_PATH=/opt/extras/ms-playwright \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/extras/ms-playwright/ubuntu26.04 \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome \
     CYPRESS_CACHE_FOLDER=/opt/extras/cypress \
     HF_HOME=/opt/extras/huggingface \
