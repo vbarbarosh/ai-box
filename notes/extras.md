@@ -14,8 +14,9 @@ the old one, never a change inside it:
 ```
 data/extras/
   versions                     what is here, one name=version a line
-  ms-playwright/
-    chromium-1254/             Playwright 1.65.0's revisions, as Playwright names them
+  ms-playwright/ubuntu26.04/   a folder per Ubuntu release, for its WebKit
+    chromium-1255/             Playwright 1.65.1's revisions, as Playwright names them
+    chromium_headless_shell-1255/
     firefox-1572/
     webkit-2388/
     chromium-1228/             Playwright 1.61.1's, for projects that pin it
@@ -40,7 +41,7 @@ the folder mounted writable and one script in it, `extras-fill`:
 
 | entry | how | downloads when |
 |---|---|---|
-| Playwright browsers | `playwright install --no-shell chromium firefox webkit`, plus the pinned release's Chromium | `PLAYWRIGHT_VERSION` changes |
+| Playwright browsers | `playwright install chromium firefox webkit`, the headless shell with them, plus the pinned release's Chromium | `PLAYWRIGHT_VERSION` changes |
 | Cypress | `cypress install` | `CYPRESS_VERSION` changes |
 | Whisper model | `WhisperModel(...)` once, as the build does today | `WHISPER_MODEL` changes |
 | Chrome | the .deb from Google's repository, checksum as today, `dpkg-deb -x` | weekly, with the full refresh |

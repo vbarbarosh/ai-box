@@ -170,15 +170,18 @@ if test -n "${IMAGE_ID:-}" && test "$(head -1 $root/.filled 2>/dev/null)" = "$st
 fi
 
 # Playwright: one revision per browser for the Playwright in the image, in
-# the folder of its Ubuntu release. The folder is an entry of its own: the
-# next release's image leaves it, and it goes as a whole.
+# the folder of its Ubuntu release, and Chromium's headless shell, which a
+# plain `chromium.launch()` starts; the screenshots are a real launch of each.
+# The folder is an entry of its own: the next release's image leaves it, and
+# it goes as a whole.
 playwright_version=`node -p "require('playwright/package.json').version"`
-playwright install --no-shell chromium firefox webkit
+playwright install chromium firefox webkit
 wanted+=(${PLAYWRIGHT_BROWSERS_PATH#$root/})
 while read -r path; do
     wanted+=($path)
-done < <(playwright install --dry-run --no-shell chromium firefox webkit | playwright_locations_from_dry_run)
+done < <(playwright install --dry-run chromium firefox webkit | playwright_locations_from_dry_run)
 playwright screenshot --browser chromium --channel chromium about:blank $tempdir/probe.png
+playwright screenshot --browser chromium about:blank $tempdir/probe.png
 playwright screenshot --browser firefox about:blank $tempdir/probe.png
 playwright screenshot --browser webkit about:blank $tempdir/probe.png
 versions+=("playwright=$playwright_version")

@@ -439,9 +439,9 @@ weekly or less. So they live in `data/extras`, each under its version:
 data/extras/
   versions          what is here, name=version, as in /etc/ai-box/versions
   ms-playwright/    ubuntu26.04/, a folder for each Ubuntu release, whose
-                    WebKit is built for it; in it chromium-1255/,
-                    firefox-1572/, webkit-2388/, and 1.61.1's chromium-1228/
-                    with its headless shell
+                    WebKit is built for it; in it chromium-1255/ with its
+                    headless shell, firefox-1572/, webkit-2388/, and
+                    1.61.1's chromium-1228/ with its own
   cypress/          16.3.0/
   huggingface/      the whisper model
   chrome/           155.0.8059.39-1/, current -> 155.0.8059.39-1
@@ -633,10 +633,12 @@ There used to be four Chromiums in the image and two ImageMagicks. Now:
   `PUPPETEER_EXECUTABLE_PATH` instead of downloading its own copy, which is the
   same browser a couple of patch releases behind. `puppeteer.launch()` needs no
   argument; `extras-fill` asserts `executablePath()` resolves there.
-- **One Chromium for Playwright**, installed with `--no-shell`. A headless
-  launch asks for the full browser's headless mode with `channel: 'chromium'`
-  rather than a second 262 MB build whose only job is to be the headless one;
-  a plain `chromium.launch()` looks for that build and fails.
+- **One Chromium for Playwright, with its headless shell.** A plain
+  `chromium.launch()` starts the shell, a 282 MB build whose only job is to be
+  the headless one; `channel: 'chromium'` starts the full browser's headless
+  mode. Both are there, so a project's own config runs as it is. The shell
+  was left out while the browsers were in the image, copied with every new
+  one; in `data/extras` it is stored once.
 - **One older Chromium, for a project with its own Playwright.** A suite that
   runs the `@playwright/test` its lockfile pins needs that release's Chromium
   (`PLAYWRIGHT_PINNED_VERSION`): the full browser for `channel: 'chromium'`,
