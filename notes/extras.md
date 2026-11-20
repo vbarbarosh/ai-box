@@ -27,8 +27,8 @@ data/extras/
     154.0.8037.97/             unpacked from the .deb
     current -> 154.0.8037.97
   npm/
-    2.1.292-0.160.1/           claude-code + codex, installed together
-    current -> 2.1.292-0.160.1
+    2.1.329-0.171.0-0.3.329/   claude-code + codex + claude-agent-sdk, installed together
+    current -> 2.1.329-0.171.0-0.3.329
 ```
 
 1.25 + 0.68 + 0.46 + 0.44 + 0.67 = 3.5 GB, stored once on the host for every
@@ -45,7 +45,7 @@ the folder mounted writable and one script in it, `extras-fill`:
 | Cypress | `cypress install` | `CYPRESS_VERSION` changes |
 | Whisper model | `WhisperModel(...)` once, as the build does today | `WHISPER_MODEL` changes |
 | Chrome | the .deb from Google's repository, checksum as today, `dpkg-deb -x` | weekly, with the full refresh |
-| CLIs | `npm install` into a new `npm/<claude>-<codex>/` | daily, when either releases |
+| CLIs and the Agent SDK | `npm install` into a new `npm/<claude>-<codex>-<sdk>/`, the SDK without its own Claude Code | daily, when one of them releases |
 
 Each step looks for its version first and does nothing when it is there.
 When the image, the CLIs and Chrome are all the last fill's (`.filled`),

@@ -224,7 +224,7 @@ See [the official Codex login reference](https://learn.chatgpt.com/docs/develope
 | `data/claude{,.json}` → `~/.claude{,.json}` | rw | so the agent keeps its login and history; one folder for every box, whatever its project |
 | `data/codex{,.json}` → `~/.codex{,.json}` | rw | same |
 | `data/images` → `/var/lib/shared` | rw | the shared image store, when it exists |
-| `data/extras` → `/opt/extras` | overlay | browsers, whisper model, Chrome, `claude`, `codex`; writes end with the box. See [Browsers, model and agent CLIs](#browsers-model-and-agent-clis) |
+| `data/extras` → `/opt/extras` | overlay | browsers, whisper model, Chrome, `claude`, `codex`, the Claude Agent SDK; writes end with the box. See [Browsers, model and agent CLIs](#browsers-model-and-agent-clis) |
 | sockets → `/run/git` | ro | with `GIT=commit`: `commit`, `push` and `pull` ask the host |
 
 Agent state is kept out of your home dotfiles: a box logs in, keeps its
@@ -458,18 +458,19 @@ data/extras/
   cypress/          16.3.0/
   huggingface/      the whisper model
   chrome/           155.0.8059.39-1/, current -> 155.0.8059.39-1
-  npm/              2.1.292-0.160.1/ (claude-code-codex), current -> ...
+  npm/              2.1.329-0.171.0-0.3.329/ (claude-code, codex and
+                    claude-agent-sdk), current -> ...
 ```
 
 - **`bin/build` fills it**, at the end, by running `extras-fill` in the new
   image, and writes its whole output to `data/logs/build-<time>.log`. What
   is there at the right version costs nothing: a daily build installs a new
-  Claude or Codex beside the old ones and moves `npm/current`, and the image
-  itself, unchanged, is not copied again. The first build of a week also
-  takes a new Chrome. Each entry is checked (a real launch, a real
-  transcription, `--version`): the agent CLIs and Chrome before they are
-  renamed into place, the browsers and the model right after their own
-  tools have put them there.
+  Claude, Codex or Agent SDK beside the old ones and moves `npm/current`, and
+  the image itself, unchanged, is not copied again. The first build of a week
+  also takes a new Chrome. Each entry is checked (a real launch, a real
+  transcription, `--version`, an import): the agent CLIs, the SDK and Chrome
+  before they are renamed into place, the browsers and the model right after
+  their own tools have put them there.
 - **`bin/run` mounts it** at `/opt/extras` as an overlay (`:O`): the host's
   folder is not written through it, and what a box writes there -- a
   project's own `npx playwright install` -- ends with it. Without the agent
@@ -482,6 +483,13 @@ data/extras/
   `/opt/extras`; `/opt/google/chrome` and `/usr/bin/google-chrome` lead there.
   `google-chrome` and `transcribe` say "run bin/build" when their part is
   missing.
+- **The Claude Agent SDK** is on no module path: a program imports it by
+  its full path,
+  `/opt/extras/npm/current/lib/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`.
+  It comes without its own Claude Code, 380 MB: the program gives it the
+  box's, `pathToClaudeCodeExecutable: '/opt/extras/npm/current/bin/claude'`.
+  Without that option `query()` stops at once: "Claude Code native binary for
+  linux-x64 not found".
 - **Old versions** stay three days after they stop being current, for boxes
   started before the fill, then the next fill removes them. `KEEP_DAYS=7
   bin/build` keeps them seven.
@@ -695,10 +703,10 @@ it, so a bump rebuilds the image from that step on and leaves the package
 layer alone. They move only by hand: nothing bumps them and nothing reminds
 of them. A seventh is in the Dockerfile itself: the older Playwright whose
 Chromium is kept for projects that pin it (`PLAYWRIGHT_PINNED_VERSION`). Everything else -- the Python and npm libraries,
-phpredis, Composer, yt-dlp, tailcat, Chrome, and the two agent CLIs -- asks its
-upstream for the current release at build time, so two builds a week apart
-differ. Each layer records what it resolved in `/etc/ai-box/versions`;
-`extras-fill` records Chrome, the browsers, the model and the CLIs in
+phpredis, Composer, yt-dlp, tailcat, Chrome, the two agent CLIs and the Claude
+Agent SDK -- asks its upstream for the current release at build time, so two
+builds a week apart differ. Each layer records what it resolved in `/etc/ai-box/versions`;
+`extras-fill` records Chrome, the browsers, the model, the CLIs and the SDK in
 `/opt/extras/versions`, in the same format. `bin/self-check --versions` prints
 both. `bin/self-check --deep` starts every tool of the first file in a box, as
 the box's user, for the build tries most of them as root: a tool recorded
