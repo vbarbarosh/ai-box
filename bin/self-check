@@ -386,10 +386,22 @@ if test -n "${FRESH:-}"; then
 else
     unset_detail="not set: the shared sign-in"
 fi
-if test -n "${CLAUDE_CODE_OAUTH_TOKEN:-}"; then
+# Claude takes ANTHROPIC_API_KEY before CLAUDE_CODE_OAUTH_TOKEN (2.1.329).
+if test -n "${ANTHROPIC_API_KEY:-}" && test -n "${CLAUDE_CODE_OAUTH_TOKEN:-}"; then
+    ok_report CLAUDE_CODE_OAUTH_TOKEN "set: unused, claude takes ANTHROPIC_API_KEY first"
+elif test -n "${CLAUDE_CODE_OAUTH_TOKEN:-}"; then
     ok_report CLAUDE_CODE_OAUTH_TOKEN "set: claude signs in with it"
+elif test -n "${ANTHROPIC_API_KEY:-}"; then
+    ok_report CLAUDE_CODE_OAUTH_TOKEN "not set"
 else
     ok_report CLAUDE_CODE_OAUTH_TOKEN "$unset_detail"
+fi
+if test -n "${ANTHROPIC_API_KEY:-}"; then
+    ok_report ANTHROPIC_API_KEY "set: claude signs in with it"
+elif test -n "${CLAUDE_CODE_OAUTH_TOKEN:-}"; then
+    ok_report ANTHROPIC_API_KEY "not set"
+else
+    ok_report ANTHROPIC_API_KEY "$unset_detail"
 fi
 # Codex reads CODEX_API_KEY in `codex exec` alone (0.167): its own screen
 # signs in from $CODEX_HOME/auth.json, whatever the variable says.
@@ -443,10 +455,12 @@ if test -n "$deep"; then
             if ! fresh_line=$(env -u GIT -u REPOS -u REPOS_PICK -u SOCKETS -u AGENTDIR -u AGENTS -u MASK -u READONLY \
                 FRESH=1 CODEX_API_KEY="$fresh_token" CODEX_ACCESS_TOKEN=ai-box-self-check \
                 OPENAI_API_KEY="$fresh_token" CLAUDE_CODE_OAUTH_TOKEN="$fresh_token" \
+                ANTHROPIC_API_KEY="$fresh_token" \
                 "$scriptdir/run-fresh" bash -seu -- "$fresh_token" 2>&1 <<'EOF'
 test "${CODEX_API_KEY:-}" = "$1"
 test "${OPENAI_API_KEY:-}" = "$1"
 test "${CLAUDE_CODE_OAUTH_TOKEN:-}" = "$1"
+test "${ANTHROPIC_API_KEY:-}" = "$1"
 test -z "${CODEX_ACCESS_TOKEN:-}"
 for path in "$HOME/.codex/auth.json" "$HOME/.codex/config.toml" "$HOME/.claude/.credentials.json" /app/.ai-box-fresh-check; do
     test ! -e "$path"
@@ -481,10 +495,12 @@ EOF
         # Podman copies the underlying files into tmpfs unless told not to.
         if fresh_app_line=$(cd "$scriptdir/.." && env -u GIT -u REPOS -u REPOS_PICK -u SOCKETS -u AGENTDIR -u AGENTS -u MASK -u READONLY \
             FRESH=app CODEX_API_KEY=ai-box-self-check OPENAI_API_KEY=ai-box-self-check \
-            CLAUDE_CODE_OAUTH_TOKEN=ai-box-self-check "$scriptdir/run" bash -seu 2>&1 <<'EOF'
+            CLAUDE_CODE_OAUTH_TOKEN=ai-box-self-check ANTHROPIC_API_KEY=ai-box-self-check \
+            "$scriptdir/run" bash -seu 2>&1 <<'EOF'
 test "${CODEX_API_KEY:-}" = ai-box-self-check
 test "${OPENAI_API_KEY:-}" = ai-box-self-check
 test "${CLAUDE_CODE_OAUTH_TOKEN:-}" = ai-box-self-check
+test "${ANTHROPIC_API_KEY:-}" = ai-box-self-check
 for path in "$HOME/.codex/auth.json" "$HOME/.claude/.credentials.json"; do
     test ! -e "$path"
 done

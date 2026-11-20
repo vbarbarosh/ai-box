@@ -23,7 +23,8 @@ usage_print () {
     echo "  MASK='a.pem keys'      more files and folders of the workspace hidden, as .env is"
     echo "  GIT=commit             commit, tag, push and pull your branch through the host"
     echo "  PIDS, MEMORY, CPUS     the box's limits"
-    echo "  CLAUDE_CODE_OAUTH_TOKEN, CODEX_API_KEY, OPENAI_API_KEY   the agent's own sign-in"
+    echo "  CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY, CODEX_API_KEY, OPENAI_API_KEY"
+    echo "                         the agent's own sign-in"
     echo "More in $(dirname "$scriptdir")/docs/README.md."
 }
 
@@ -876,11 +877,14 @@ done
 # The agent's own sign-in, when the shell that starts the box sets one:
 # passed by name, so its value is on no command line and never in data/.
 #   CLAUDE_CODE_OAUTH_TOKEN  claude prefers it to the shared sign-in
+#   ANTHROPIC_API_KEY        a Claude Console key; claude prefers it to the
+#                            token above too (2.1.329), and `claude -p` uses
+#                            it without asking
 #   CODEX_API_KEY            `codex exec` prefers it to the shared sign-in;
 #                            codex's own screen never reads it (0.167) and
 #                            signs in from $CODEX_HOME/auth.json alone
 #   OPENAI_API_KEY           for other tools; codex 0.167 ignores it
-for name in CLAUDE_CODE_OAUTH_TOKEN CODEX_API_KEY OPENAI_API_KEY; do
+for name in CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY CODEX_API_KEY OPENAI_API_KEY; do
     if test -n "${!name:-}"; then
         opts+=(--env "$name")
     fi

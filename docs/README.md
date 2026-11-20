@@ -104,6 +104,7 @@ GIT=commit bin/run claude
                    # and pull
 CLAUDE_CODE_OAUTH_TOKEN=... bin/run claude
                    # ...signed in to that account instead of the shared one;
+                   # ANTHROPIC_API_KEY for a key of the Claude Console;
                    # CODEX_API_KEY for `codex exec` alone, not for codex's
                    # own screen; see Its own sign-in
 
@@ -168,13 +169,14 @@ or `AGENTS` rather than silently dropping a request to mount something.
 defaults an unset or empty `FRESH` to `1` and passes commands and their
 arguments to `bin/run` unchanged.
 
-Fresh mode forwards nonempty `CLAUDE_CODE_OAUTH_TOKEN`, `CODEX_API_KEY` and
-`OPENAI_API_KEY`, just like ordinary mode. They are passed by name, so their
-values do not appear in the launch command or its log. Saved sign-ins stay
-outside the box. For example, with the variable already exported:
+Fresh mode forwards nonempty `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`,
+`CODEX_API_KEY` and `OPENAI_API_KEY`, just like ordinary mode. They are passed
+by name, so their values do not appear in the launch command or its log.
+Saved sign-ins stay outside the box. For example, with the variable already
+exported:
 
 ```bash
-bin/run-fresh claude    # uses CLAUDE_CODE_OAUTH_TOKEN
+bin/run-fresh claude    # uses ANTHROPIC_API_KEY, else CLAUDE_CODE_OAUTH_TOKEN
 bin/run-fresh codex exec --skip-git-repo-check 'Reply with OK.'
                         # uses CODEX_API_KEY
 ```
@@ -187,7 +189,8 @@ Unset or empty credentials leave the fresh box signed out. To test a token
 entered inside the box, unset any exported credentials first:
 
 ```bash
-env -u CLAUDE_CODE_OAUTH_TOKEN -u CODEX_API_KEY -u OPENAI_API_KEY bin/run-fresh
+env -u CLAUDE_CODE_OAUTH_TOKEN -u ANTHROPIC_API_KEY -u CODEX_API_KEY \
+    -u OPENAI_API_KEY bin/run-fresh
 ```
 
 Then enter the token **inside that shell**:
@@ -279,12 +282,22 @@ keeps renewing itself:
 | variable | for | |
 |---|---|---|
 | `CLAUDE_CODE_OAUTH_TOKEN` | `claude` | the long-lived token of `claude setup-token`; `claude auth status` inside says `oauth_token` |
+| `ANTHROPIC_API_KEY` | `claude` | an API key of the Claude Console, used in place of a sign-in, and before `CLAUDE_CODE_OAUTH_TOKEN` when both are set; `claude auth status` inside says `api_key`. See below |
 | `CODEX_API_KEY` | `codex exec` | an API key; `codex exec` sends it, beside the shared sign-in too. Codex's own screen never reads it: see below |
 | `OPENAI_API_KEY` | other tools | passed as it is; codex 0.167 does not sign in with it, alone or beside the shared sign-in |
 
 Unset or empty, the agent uses the shared sign-in in ordinary mode; a fresh
 box has no shared sign-in. `bin/self-check` says which are set, never their
 values.
+
+`ANTHROPIC_API_KEY` is the name the Anthropic SDKs read too, so a shell may
+have it exported for other work. Every box started from that shell gets it:
+`claude -p` then runs on the key without asking, and `claude` on its screen
+asks once whether to use it (No is the default) and keeps the answer, by the
+key's last 20 characters, in its `.claude.json`: `data/claude.json` in an
+ordinary box, shared by every box. Visual Agency writes the answer Yes into
+its account's own folder, so its agents are not asked. To keep a key out of
+one box, start it with `env -u ANTHROPIC_API_KEY bin/run claude`.
 
 Codex's own screen, `codex` with no `exec`, signs in from
 `$CODEX_HOME/auth.json` and from nothing else (codex 0.167). With only
