@@ -725,7 +725,7 @@ tool_try () {
     fi
 }
 
-for name in php tesseract zbarimg optipng pngquant parallel bc; do
+for name in php tesseract zbarimg optipng pngquant parallel bc fdfind; do
     tool_try "$name" --version
 done
 for name in pngcrush cwebp cjpeg djpeg jpegtran; do

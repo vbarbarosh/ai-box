@@ -66,6 +66,7 @@ RUN --mount=type=cache,target=/var/cache/apt \
         curl \
         ethtool \
         exiftran \
+        fd-find \
         ffmpeg \
         file \
         fonts-inter \
@@ -135,6 +136,7 @@ RUN --mount=type=cache,target=/var/cache/apt \
     && djpeg -version \
     && jpegtran -version \
     && exiftran -h > /dev/null \
+    && fdfind --version > /dev/null \
     && tmux -V \
     && bc --version > /dev/null \
     && echo | ts > /dev/null \

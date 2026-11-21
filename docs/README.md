@@ -497,8 +497,8 @@ data/extras/
   linux-x64 not found".
 - **pi** keeps its settings and sessions in `~/.pi`, which starts empty in
   every box and ends with it: `pi -c` finds no session of an earlier box.
-  At each start it downloads `fd` from GitHub into it, for the image has
-  `rg` and no `fd` (pi 1.6.0).
+  Its file search takes the image's `rg` and `fdfind` (Ubuntu's fd-find),
+  so it downloads neither into it.
 - **Old versions** stay three days after they stop being current, for boxes
   started before the fill, then the next fill removes them. `KEEP_DAYS=7
   bin/build` keeps them seven.
