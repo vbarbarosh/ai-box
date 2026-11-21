@@ -224,7 +224,7 @@ See [the official Codex login reference](https://learn.chatgpt.com/docs/develope
 | `data/claude{,.json}` → `~/.claude{,.json}` | rw | so the agent keeps its login and history; one folder for every box, whatever its project |
 | `data/codex{,.json}` → `~/.codex{,.json}` | rw | same |
 | `data/images` → `/var/lib/shared` | rw | the shared image store, when it exists |
-| `data/extras` → `/opt/extras` | overlay | browsers, whisper model, Chrome, `claude`, `codex`, the Claude Agent SDK; writes end with the box. See [Browsers, model and agent CLIs](#browsers-model-and-agent-clis) |
+| `data/extras` → `/opt/extras` | overlay | browsers, whisper model, Chrome, `claude`, `codex`, `pi`, the Claude Agent SDK; writes end with the box. See [Browsers, model and agent CLIs](#browsers-model-and-agent-clis) |
 | sockets → `/run/git` | ro | with `GIT=commit`: `commit`, `push` and `pull` ask the host |
 
 Agent state is kept out of your home dotfiles: a box logs in, keeps its
@@ -282,7 +282,7 @@ keeps renewing itself:
 | variable | for | |
 |---|---|---|
 | `CLAUDE_CODE_OAUTH_TOKEN` | `claude` | the long-lived token of `claude setup-token`; `claude auth status` inside says `oauth_token` |
-| `ANTHROPIC_API_KEY` | `claude` | an API key of the Claude Console, used in place of a sign-in, and before `CLAUDE_CODE_OAUTH_TOKEN` when both are set; `claude auth status` inside says `api_key`. See below |
+| `ANTHROPIC_API_KEY` | `claude`, `pi` | an API key of the Claude Console, used in place of a sign-in, and before `CLAUDE_CODE_OAUTH_TOKEN` when both are set; `claude auth status` inside says `api_key`. The only one of these `pi` reads. See below |
 | `CODEX_API_KEY` | `codex exec` | an API key; `codex exec` sends it, beside the shared sign-in too. Codex's own screen never reads it: see below |
 | `OPENAI_API_KEY` | other tools | passed as it is; codex 0.167 does not sign in with it, alone or beside the shared sign-in |
 
@@ -298,6 +298,11 @@ key's last 20 characters, in its `.claude.json`: `data/claude.json` in an
 ordinary box, shared by every box. Visual Agency writes the answer Yes into
 its account's own folder, so its agents are not asked. To keep a key out of
 one box, start it with `env -u ANTHROPIC_API_KEY bin/run claude`.
+
+`pi` signs in with `ANTHROPIC_API_KEY` alone of these, and has no shared
+sign-in in `data/`: without the key, with the token or not, it starts with
+"No models available". With the key, `bin/run pi --provider anthropic
+--model claude-opus-5-5` runs it on that model.
 
 Codex's own screen, `codex` with no `exec`, signs in from
 `$CODEX_HOME/auth.json` and from nothing else (codex 0.167). With only
@@ -458,14 +463,14 @@ data/extras/
   cypress/          16.3.0/
   huggingface/      the whisper model
   chrome/           155.0.8059.39-1/, current -> 155.0.8059.39-1
-  npm/              2.1.329-0.171.0-0.3.329/ (claude-code, codex and
-                    claude-agent-sdk), current -> ...
+  npm/              2.1.329-0.171.0-0.3.329-1.6.0/ (claude-code, codex,
+                    claude-agent-sdk and pi), current -> ...
 ```
 
 - **`bin/build` fills it**, at the end, by running `extras-fill` in the new
   image, and writes its whole output to `data/logs/build-<time>.log`. What
   is there at the right version costs nothing: a daily build installs a new
-  Claude, Codex or Agent SDK beside the old ones and moves `npm/current`, and
+  Claude, Codex, Agent SDK or pi beside the old ones, moves `npm/current`, and
   the image itself, unchanged, is not copied again. The first build of a week
   also takes a new Chrome. Each entry is checked (a real launch, a real
   transcription, `--version`, an import): the agent CLIs, the SDK and Chrome
@@ -478,7 +483,7 @@ data/extras/
   with a warning, since the fill installs the agents first. A box sees the
   folder as it was when it started: what a later fill adds is listed but
   cannot be opened, so `bin/build` names the running boxes to restart.
-- **Inside, nothing moved.** `claude` and `codex` are on the `PATH`;
+- **Inside, nothing moved.** `claude`, `codex` and `pi` are on the `PATH`;
   `PLAYWRIGHT_BROWSERS_PATH`, `CYPRESS_CACHE_FOLDER` and `HF_HOME` point into
   `/opt/extras`; `/opt/google/chrome` and `/usr/bin/google-chrome` lead there.
   `google-chrome` and `transcribe` say "run bin/build" when their part is
@@ -490,6 +495,10 @@ data/extras/
   box's, `pathToClaudeCodeExecutable: '/opt/extras/npm/current/bin/claude'`.
   Without that option `query()` stops at once: "Claude Code native binary for
   linux-x64 not found".
+- **pi** keeps its settings and sessions in `~/.pi`, which starts empty in
+  every box and ends with it: `pi -c` finds no session of an earlier box.
+  At each start it downloads `fd` from GitHub into it, for the image has
+  `rg` and no `fd` (pi 1.6.0).
 - **Old versions** stay three days after they stop being current, for boxes
   started before the fill, then the next fill removes them. `KEEP_DAYS=7
   bin/build` keeps them seven.
@@ -703,7 +712,7 @@ it, so a bump rebuilds the image from that step on and leaves the package
 layer alone. They move only by hand: nothing bumps them and nothing reminds
 of them. A seventh is in the Dockerfile itself: the older Playwright whose
 Chromium is kept for projects that pin it (`PLAYWRIGHT_PINNED_VERSION`). Everything else -- the Python and npm libraries,
-phpredis, Composer, yt-dlp, tailcat, Chrome, the two agent CLIs and the Claude
+phpredis, Composer, yt-dlp, tailcat, Chrome, three agent CLIs and the Claude
 Agent SDK -- asks its upstream for the current release at build time, so two
 builds a week apart differ. Each layer records what it resolved in `/etc/ai-box/versions`;
 `extras-fill` records Chrome, the browsers, the model, the CLIs and the SDK in

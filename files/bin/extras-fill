@@ -15,8 +15,8 @@ EXIT_MESSAGE="${RED}extras-fill failed${RESET}"
 
 # Fills /opt/extras -- data/extras on the host -- with what the image leaves
 # out: Playwright's browsers, the Chromium of PLAYWRIGHT_PINNED_VERSION,
-# Cypress, the whisper model, Chrome, Claude Code, Codex and the Claude Agent
-# SDK. bin/build runs it in the new image with the folder writable;
+# Cypress, the whisper model, Chrome, Claude Code, Codex, the Claude Agent SDK
+# and pi. bin/build runs it in the new image with the folder writable;
 # notes/extras.md has the design.
 #
 #   extras-fill                  fill /opt/extras
@@ -36,8 +36,8 @@ case "${1:-}" in
         echo "       EXTRAS=/tmp/x $scriptname    fill another folder"
         echo "       KEEP_DAYS=7 $scriptname      keep a version 7 days after it was last current (3)"
         echo "bin/build runs it in the new image; it downloads the browsers, the speech"
-        echo "model, Chrome, both agent CLIs and the Claude Agent SDK, several GB the"
-        echo "first time."
+        echo "model, Chrome, the agent CLIs (claude, codex, pi) and the Claude Agent SDK,"
+        echo "several GB the first time."
         exit 0 ;;
     *)
         echo "usage: $scriptname   (no arguments; -h says what it does)" >&2
@@ -94,17 +94,19 @@ current_set () {
     mv -T $root/$1/.current.tmp $root/$1/current
 }
 
-# Claude Code, Codex and the Claude Agent SDK first: bin/run starts a box as
-# soon as they are here, so a browser that fails below never takes the agents
-# with it. Installed together under one name, so what a box starts with never
-# changes under it.
+# Claude Code, Codex, the Claude Agent SDK and pi first: bin/run starts a box
+# as soon as they are here, so a browser that fails below never takes the
+# agents with it. Installed together under one name, so what a box starts with
+# never changes under it.
 claude_version=`npm view @anthropic-ai/claude-code version`
 codex_version=`npm view @openai/codex version`
 sdk_version=`npm view @anthropic-ai/claude-agent-sdk version`
+pi_version=`npm view @earendil-works/pi-coding-agent version`
 test -n "$claude_version"
 test -n "$codex_version"
 test -n "$sdk_version"
-npm_name=$claude_version-$codex_version-$sdk_version
+test -n "$pi_version"
+npm_name=$claude_version-$codex_version-$sdk_version-$pi_version
 if ! test -d $root/npm/$npm_name; then
     NPM_CONFIG_PREFIX=$root/npm/.$npm_name.tmp npm install --global --no-audit --no-fund \
         "@anthropic-ai/claude-code@$claude_version" \
@@ -116,16 +118,22 @@ if ! test -d $root/npm/$npm_name; then
     # packages too, so the SDK has an install of its own.
     NPM_CONFIG_PREFIX=$root/npm/.$npm_name.tmp npm install --global --no-audit --no-fund --os=none \
         "@anthropic-ai/claude-agent-sdk@$sdk_version"
+    # pi, the coding agent of pi.dev, without its dependencies' install
+    # scripts, as pi's own container recipe installs it: the two it has (pi
+    # 1.6.0) are a no-op and a version warning.
+    NPM_CONFIG_PREFIX=$root/npm/.$npm_name.tmp npm install --global --no-audit --no-fund --ignore-scripts \
+        "@earendil-works/pi-coding-agent@$pi_version"
     # Checked under the temporary name: a set that does not start is never
     # the folder the next fill finds and makes current.
     $root/npm/.$npm_name.tmp/bin/claude --version
     $root/npm/.$npm_name.tmp/bin/codex --version
+    $root/npm/.$npm_name.tmp/bin/pi --version
     (cd $root/npm/.$npm_name.tmp/lib && node -e "import('@anthropic-ai/claude-agent-sdk').then(() => console.log('agent sdk ok'))")
     mv $root/npm/.$npm_name.tmp $root/npm/$npm_name
 fi
 current_set npm $npm_name
 wanted+=(npm/$npm_name)
-versions+=("claude-code=$claude_version" "codex=$codex_version" "claude-agent-sdk=$sdk_version")
+versions+=("claude-code=$claude_version" "codex=$codex_version" "claude-agent-sdk=$sdk_version" "pi-coding-agent=$pi_version")
 
 # Chrome's version for this fill: the one it has, or with REFRESH the current
 # stable package; it is fetched and unpacked further down.

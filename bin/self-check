@@ -397,7 +397,7 @@ else
     ok_report CLAUDE_CODE_OAUTH_TOKEN "$unset_detail"
 fi
 if test -n "${ANTHROPIC_API_KEY:-}"; then
-    ok_report ANTHROPIC_API_KEY "set: claude signs in with it"
+    ok_report ANTHROPIC_API_KEY "set: claude and pi sign in with it"
 elif test -n "${CLAUDE_CODE_OAUTH_TOKEN:-}"; then
     ok_report ANTHROPIC_API_KEY "not set"
 else
@@ -472,6 +472,7 @@ for path in /repos /sockets /agentdir /agents /run/git /var/lib/shared; do
 done
 command -v claude >/dev/null
 command -v codex >/dev/null
+command -v pi >/dev/null
 test "$(findmnt -n -o FSTYPE --target /app)" = tmpfs
 touch /app/.ai-box-fresh-check "$HOME/.codex/auth.json"
 echo fresh-ok
