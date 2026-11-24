@@ -411,10 +411,18 @@ else
     ok_report CODEX_API_KEY "$unset_detail"
 fi
 if test -n "${OPENAI_API_KEY:-}"; then
-    ok_report OPENAI_API_KEY "set: for other tools; codex does not sign in with it"
+    ok_report OPENAI_API_KEY "set: pi signs in with it; codex does not"
 else
     ok_report OPENAI_API_KEY "not set"
 fi
+# pi's keys for its other providers, by pi's own names (1.6.0).
+for name in GEMINI_API_KEY XAI_API_KEY DEEPSEEK_API_KEY MOONSHOT_API_KEY GROQ_API_KEY OPENROUTER_API_KEY; do
+    if test -n "${!name:-}"; then
+        ok_report "$name" "set: pi signs in with it"
+    else
+        ok_report "$name" "not set"
+    fi
+done
 
 # Stale container records naming a runtime that is no longer installed make
 # every podman command noisy. Worth naming, because the error does not say so.
@@ -455,12 +463,14 @@ if test -n "$deep"; then
             if ! fresh_line=$(env -u GIT -u REPOS -u REPOS_PICK -u SOCKETS -u AGENTDIR -u AGENTS -u MASK -u READONLY \
                 FRESH=1 CODEX_API_KEY="$fresh_token" CODEX_ACCESS_TOKEN=ai-box-self-check \
                 OPENAI_API_KEY="$fresh_token" CLAUDE_CODE_OAUTH_TOKEN="$fresh_token" \
-                ANTHROPIC_API_KEY="$fresh_token" \
+                ANTHROPIC_API_KEY="$fresh_token" GEMINI_API_KEY="$fresh_token" XAI_API_KEY="$fresh_token" \
+                DEEPSEEK_API_KEY="$fresh_token" MOONSHOT_API_KEY="$fresh_token" GROQ_API_KEY="$fresh_token" \
+                OPENROUTER_API_KEY="$fresh_token" \
                 "$scriptdir/run-fresh" bash -seu -- "$fresh_token" 2>&1 <<'EOF'
-test "${CODEX_API_KEY:-}" = "$1"
-test "${OPENAI_API_KEY:-}" = "$1"
-test "${CLAUDE_CODE_OAUTH_TOKEN:-}" = "$1"
-test "${ANTHROPIC_API_KEY:-}" = "$1"
+for name in CODEX_API_KEY OPENAI_API_KEY CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY \
+    GEMINI_API_KEY XAI_API_KEY DEEPSEEK_API_KEY MOONSHOT_API_KEY GROQ_API_KEY OPENROUTER_API_KEY; do
+    test "${!name:-}" = "$1"
+done
 test -z "${CODEX_ACCESS_TOKEN:-}"
 for path in "$HOME/.codex/auth.json" "$HOME/.codex/config.toml" "$HOME/.claude/.credentials.json" /app/.ai-box-fresh-check; do
     test ! -e "$path"
@@ -497,11 +507,13 @@ EOF
         if fresh_app_line=$(cd "$scriptdir/.." && env -u GIT -u REPOS -u REPOS_PICK -u SOCKETS -u AGENTDIR -u AGENTS -u MASK -u READONLY \
             FRESH=app CODEX_API_KEY=ai-box-self-check OPENAI_API_KEY=ai-box-self-check \
             CLAUDE_CODE_OAUTH_TOKEN=ai-box-self-check ANTHROPIC_API_KEY=ai-box-self-check \
+            GEMINI_API_KEY=ai-box-self-check XAI_API_KEY=ai-box-self-check DEEPSEEK_API_KEY=ai-box-self-check \
+            MOONSHOT_API_KEY=ai-box-self-check GROQ_API_KEY=ai-box-self-check OPENROUTER_API_KEY=ai-box-self-check \
             "$scriptdir/run" bash -seu 2>&1 <<'EOF'
-test "${CODEX_API_KEY:-}" = ai-box-self-check
-test "${OPENAI_API_KEY:-}" = ai-box-self-check
-test "${CLAUDE_CODE_OAUTH_TOKEN:-}" = ai-box-self-check
-test "${ANTHROPIC_API_KEY:-}" = ai-box-self-check
+for name in CODEX_API_KEY OPENAI_API_KEY CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY \
+    GEMINI_API_KEY XAI_API_KEY DEEPSEEK_API_KEY MOONSHOT_API_KEY GROQ_API_KEY OPENROUTER_API_KEY; do
+    test "${!name:-}" = ai-box-self-check
+done
 for path in "$HOME/.codex/auth.json" "$HOME/.claude/.credentials.json"; do
     test ! -e "$path"
 done

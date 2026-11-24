@@ -106,7 +106,8 @@ CLAUDE_CODE_OAUTH_TOKEN=... bin/run claude
                    # ...signed in to that account instead of the shared one;
                    # ANTHROPIC_API_KEY for a key of the Claude Console;
                    # CODEX_API_KEY for `codex exec` alone, not for codex's
-                   # own screen; see Its own sign-in
+                   # own screen; GROQ_API_KEY and the like for pi; see Its
+                   # own sign-in
 
 bin/usage          # rate-limit usage of the agents the box is logged in to,
                    # Claude and GPT side by side; reads data/, starts nothing
@@ -169,8 +170,8 @@ or `AGENTS` rather than silently dropping a request to mount something.
 defaults an unset or empty `FRESH` to `1` and passes commands and their
 arguments to `bin/run` unchanged.
 
-Fresh mode forwards nonempty `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`,
-`CODEX_API_KEY` and `OPENAI_API_KEY`, just like ordinary mode. They are passed
+Fresh mode forwards every nonempty variable of
+[Its own sign-in](#its-own-sign-in), just like ordinary mode. They are passed
 by name, so their values do not appear in the launch command or its log.
 Saved sign-ins stay outside the box. For example, with the variable already
 exported:
@@ -282,9 +283,15 @@ keeps renewing itself:
 | variable | for | |
 |---|---|---|
 | `CLAUDE_CODE_OAUTH_TOKEN` | `claude` | the long-lived token of `claude setup-token`; `claude auth status` inside says `oauth_token` |
-| `ANTHROPIC_API_KEY` | `claude`, `pi` | an API key of the Claude Console, used in place of a sign-in, and before `CLAUDE_CODE_OAUTH_TOKEN` when both are set; `claude auth status` inside says `api_key`. The only one of these `pi` reads. See below |
+| `ANTHROPIC_API_KEY` | `claude`, `pi` | an API key of the Claude Console, used in place of a sign-in, and before `CLAUDE_CODE_OAUTH_TOKEN` when both are set; `claude auth status` inside says `api_key`. `pi --provider anthropic`. See below |
 | `CODEX_API_KEY` | `codex exec` | an API key; `codex exec` sends it, beside the shared sign-in too. Codex's own screen never reads it: see below |
-| `OPENAI_API_KEY` | other tools | passed as it is; codex 0.167 does not sign in with it, alone or beside the shared sign-in |
+| `OPENAI_API_KEY` | `pi`, other tools | an API key of OpenAI, `pi --provider openai`; codex 0.167 does not sign in with it, alone or beside the shared sign-in |
+| `GEMINI_API_KEY` | `pi` | an API key of Google Gemini, `pi --provider google` |
+| `XAI_API_KEY` | `pi` | an API key of xAI, `pi --provider xai` |
+| `DEEPSEEK_API_KEY` | `pi` | an API key of DeepSeek, `pi --provider deepseek` |
+| `MOONSHOT_API_KEY` | `pi` | an API key of Moonshot AI, the Kimi models, `pi --provider moonshotai`; not Kimi For Coding's, `KIMI_API_KEY`, which is not passed |
+| `GROQ_API_KEY` | `pi` | an API key of Groq, `pi --provider groq` |
+| `OPENROUTER_API_KEY` | `pi` | an API key of OpenRouter, `pi --provider openrouter` |
 
 Unset or empty, the agent uses the shared sign-in in ordinary mode; a fresh
 box has no shared sign-in. `bin/self-check` says which are set, never their
@@ -299,10 +306,17 @@ ordinary box, shared by every box. Visual Agency writes the answer Yes into
 its account's own folder, so its agents are not asked. To keep a key out of
 one box, start it with `env -u ANTHROPIC_API_KEY bin/run claude`.
 
-`pi` signs in with `ANTHROPIC_API_KEY` alone of these, and has no shared
-sign-in in `data/`: without the key, with the token or not, it starts with
-"No models available". With the key, `bin/run pi --provider anthropic
---model claude-opus-5-5` runs it on that model.
+`pi` has no shared sign-in in `data/`: it signs in with the keys the table
+gives it, each for its own provider, and with none of them set, with the
+token or not, it starts with "No models available". With `ANTHROPIC_API_KEY`,
+`bin/run pi --provider anthropic --model claude-opus-5-5` runs it on that
+model; inside, `pi auth check --provider groq` says `ready` once
+`GROQ_API_KEY` came in. The names are pi's own (pi 1.6.0, its Providers
+page); a provider of pi's not in the table, Mistral say, needs its variable
+added to `bin/run`'s list first. Like `ANTHROPIC_API_KEY`, they are names
+other tools read too: a shell that exports one for other work gives it to
+every box it starts, and `env -u GROQ_API_KEY bin/run pi` keeps it out of
+one.
 
 Codex's own screen, `codex` with no `exec`, signs in from
 `$CODEX_HOME/auth.json` and from nothing else (codex 0.167). With only
